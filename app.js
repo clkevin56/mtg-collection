@@ -494,45 +494,67 @@ const App = {
     },
 
     removeDuplicates() {
-        const groups = {};
-        for (const card of this.collection) {
-            const key = (card.name || card.frName || '').toLowerCase() + '||' + (card.set || '') + '||' + (card.foil ? '1' : '0');
-            if (!groups[key]) groups[key] = [];
-            groups[key].push(card);
+        const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+
+        // Chaque carte génère 2 clés possibles (nom EN + nom FR) pour couvrir les imports mixtes
+        const cardKeys = card => {
+            const set = (card.set || '').toUpperCase();
+            const foil = card.foil ? '1' : '0';
+            const keys = new Set();
+            if (card.name) keys.add(norm(card.name) + '||' + set + '||' + foil);
+            if (card.frName) keys.add(norm(card.frName) + '||' + set + '||' + foil);
+            return [...keys];
+        };
+
+        // Union-Find pour grouper les cartes qui partagent au moins une clé commune
+        const n = this.collection.length;
+        const parent = Array.from({ length: n }, (_, i) => i);
+        const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+        const union = (i, j) => { parent[find(i)] = find(j); };
+
+        const lookup = new Map();
+        for (let i = 0; i < n; i++) {
+            for (const key of cardKeys(this.collection[i])) {
+                if (lookup.has(key)) union(i, lookup.get(key));
+                else lookup.set(key, i);
+            }
         }
 
-        const dupes = Object.values(groups).filter(g => g.length > 1);
+        // Regrouper par racine Union-Find
+        const groups = new Map();
+        for (let i = 0; i < n; i++) {
+            const root = find(i);
+            if (!groups.has(root)) groups.set(root, []);
+            groups.get(root).push(this.collection[i]);
+        }
+
+        const dupes = [...groups.values()].filter(g => g.length > 1);
         if (dupes.length === 0) {
             this.showToast('Aucun doublon trouve !');
             return;
         }
 
         const totalDupes = dupes.reduce((s, g) => s + g.length - 1, 0);
-        if (!confirm(`${totalDupes} doublon(s) trouves sur ${dupes.length} carte(s).\nLes quantites seront additionnees.\n\nContinuer ?`)) return;
+        const lines = dupes.map(g => `• ${dn(g[0])} (${g.length} entrees → ${g.reduce((s, c) => s + (c.quantity || 1), 0)} exemplaires)`).join('\n');
+        if (!confirm(`${totalDupes} doublon(s) trouves :\n${lines}\n\nLes quantites seront additionnees. Continuer ?`)) return;
 
         const merged = [];
-        const processed = new Set();
-
-        for (const card of this.collection) {
-            const key = (card.name || card.frName || '').toLowerCase() + '||' + (card.set || '') + '||' + (card.foil ? '1' : '0');
-            if (processed.has(key)) continue;
-            processed.add(key);
-
-            const group = groups[key];
-            if (group.length === 1) {
-                merged.push(card);
-            } else {
-                const best = group.reduce((a, b) => {
-                    let score = 0;
-                    if (b.image && !a.image) score++;
-                    if ((b.price || 0) > (a.price || 0)) score++;
-                    if (b.id && !b.id.startsWith('manual-') && !b.id.startsWith('import-')) score++;
-                    return score >= 2 ? b : a;
-                });
-                const totalQty = group.reduce((s, c) => s + (c.quantity || 1), 0);
-                const kept = { ...best, quantity: totalQty };
-                merged.push(kept);
-            }
+        const seen = new Set();
+        for (let i = 0; i < n; i++) {
+            const root = find(i);
+            if (seen.has(root)) continue;
+            seen.add(root);
+            const group = groups.get(root);
+            if (group.length === 1) { merged.push(group[0]); continue; }
+            const best = group.reduce((a, b) => {
+                let score = 0;
+                if (b.image && !a.image) score++;
+                if ((b.price || 0) > 0 && !(a.price > 0)) score++;
+                if (b.id && !b.id.startsWith('manual-') && !b.id.startsWith('import-')) score++;
+                return score >= 2 ? b : a;
+            });
+            const totalQty = group.reduce((s, c) => s + (c.quantity || 1), 0);
+            merged.push({ ...best, quantity: totalQty });
         }
 
         this.collection = merged;
