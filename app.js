@@ -202,6 +202,7 @@ const App = {
         document.getElementById('btn-export').addEventListener('click', () => this.exportCSV());
         document.getElementById('btn-backup').addEventListener('click', () => this.backupJSON());
         document.getElementById('btn-refresh-prices').addEventListener('click', () => this.refreshPrices());
+        document.getElementById('btn-remove-duplicates').addEventListener('click', () => this.removeDuplicates());
 
         const excelZone = document.getElementById('excel-drop-zone');
         excelZone.addEventListener('dragover', (e) => { e.preventDefault(); excelZone.classList.add('dragover'); });
@@ -490,6 +491,54 @@ const App = {
         this.updateStats();
         if (btn) { btn.disabled = false; btn.textContent = 'Rafraîchir les prix'; }
         this.showToast(`${updated} prix mis à jour !`);
+    },
+
+    removeDuplicates() {
+        const groups = {};
+        for (const card of this.collection) {
+            const key = (card.name || card.frName || '').toLowerCase() + '||' + (card.set || '') + '||' + (card.foil ? '1' : '0');
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(card);
+        }
+
+        const dupes = Object.values(groups).filter(g => g.length > 1);
+        if (dupes.length === 0) {
+            this.showToast('Aucun doublon trouve !');
+            return;
+        }
+
+        const totalDupes = dupes.reduce((s, g) => s + g.length - 1, 0);
+        if (!confirm(`${totalDupes} doublon(s) trouves sur ${dupes.length} carte(s).\nLes quantites seront additionnees.\n\nContinuer ?`)) return;
+
+        const merged = [];
+        const processed = new Set();
+
+        for (const card of this.collection) {
+            const key = (card.name || card.frName || '').toLowerCase() + '||' + (card.set || '') + '||' + (card.foil ? '1' : '0');
+            if (processed.has(key)) continue;
+            processed.add(key);
+
+            const group = groups[key];
+            if (group.length === 1) {
+                merged.push(card);
+            } else {
+                const best = group.reduce((a, b) => {
+                    let score = 0;
+                    if (b.image && !a.image) score++;
+                    if ((b.price || 0) > (a.price || 0)) score++;
+                    if (b.id && !b.id.startsWith('manual-') && !b.id.startsWith('import-')) score++;
+                    return score >= 2 ? b : a;
+                });
+                const totalQty = group.reduce((s, c) => s + (c.quantity || 1), 0);
+                const kept = { ...best, quantity: totalQty };
+                merged.push(kept);
+            }
+        }
+
+        this.collection = merged;
+        this.saveCollection();
+        this.renderCollection();
+        this.showToast(`${totalDupes} doublon(s) fusionnes !`);
     },
 
     // ================================================================
