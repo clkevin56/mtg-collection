@@ -493,7 +493,7 @@ const App = {
         this.showToast(`${updated} prix mis à jour !`);
     },
 
-    removeDuplicates() {
+    async removeDuplicates() {
         // Étape 1 : fusionner les entrées séparées pour la même carte
         const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
         const cardKeys = card => {
@@ -556,16 +556,26 @@ const App = {
 
         if (!confirm(msg + '\n\nContinuer ?')) return;
 
+        // Bloquer le listener Firebase pour éviter qu'il réécrase nos changements
+        this._ignoringSnapshot = true;
+        clearTimeout(this._cloudSaveTimer);
+
         // Appliquer fusion des entrées
         this.collection = afterMerge;
 
-        // Remettre les quantités à 1 si confirmé et qu'il y en a
+        // Remettre les quantités à 1
         if (withQty.length > 0) {
             for (const card of this.collection) card.quantity = 1;
         }
 
-        this.saveCollection();
+        localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
+        this.updateStats();
         this.renderCollection();
+
+        // Pousser immédiatement sans attendre le debounce
+        await this._pushToCloud();
+        this._ignoringSnapshot = false;
+
         const total = mergedEntries + withQty.length;
         this.showToast(`${total} doublon(s) supprimes !`);
     },
@@ -1282,6 +1292,7 @@ const App = {
             // Ecouter les changements en temps reel (depuis un autre appareil)
             this._unsubscribe = docRef.onSnapshot(snapshot => {
                 if (!snapshot.exists) return;
+                if (this._ignoringSnapshot) return;
                 // Ignorer nos propres ecritures locales
                 if (snapshot.metadata.hasPendingWrites) return;
 
