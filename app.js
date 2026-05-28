@@ -494,9 +494,8 @@ const App = {
     },
 
     removeDuplicates() {
+        // Étape 1 : fusionner les entrées séparées pour la même carte
         const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
-
-        // Chaque carte génère 2 clés possibles (nom EN + nom FR) pour couvrir les imports mixtes
         const cardKeys = card => {
             const set = (card.set || '').toUpperCase();
             const foil = card.foil ? '1' : '0';
@@ -505,13 +504,10 @@ const App = {
             if (card.frName) keys.add(norm(card.frName) + '||' + set + '||' + foil);
             return [...keys];
         };
-
-        // Union-Find pour grouper les cartes qui partagent au moins une clé commune
         const n = this.collection.length;
         const parent = Array.from({ length: n }, (_, i) => i);
         const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
         const union = (i, j) => { parent[find(i)] = find(j); };
-
         const lookup = new Map();
         for (let i = 0; i < n; i++) {
             for (const key of cardKeys(this.collection[i])) {
@@ -519,33 +515,23 @@ const App = {
                 else lookup.set(key, i);
             }
         }
-
-        // Regrouper par racine Union-Find
         const groups = new Map();
         for (let i = 0; i < n; i++) {
             const root = find(i);
             if (!groups.has(root)) groups.set(root, []);
             groups.get(root).push(this.collection[i]);
         }
-
-        const dupes = [...groups.values()].filter(g => g.length > 1);
-        if (dupes.length === 0) {
-            this.showToast('Aucun doublon trouve !');
-            return;
-        }
-
-        const totalDupes = dupes.reduce((s, g) => s + g.length - 1, 0);
-        const lines = dupes.map(g => `• ${dn(g[0])} (${g.length} entrees → ${g.reduce((s, c) => s + (c.quantity || 1), 0)} exemplaires)`).join('\n');
-        if (!confirm(`${totalDupes} doublon(s) trouves :\n${lines}\n\nLes quantites seront additionnees. Continuer ?`)) return;
-
-        const merged = [];
+        const dupeGroups = [...groups.values()].filter(g => g.length > 1);
+        let mergedEntries = 0;
+        const afterMerge = [];
         const seen = new Set();
         for (let i = 0; i < n; i++) {
             const root = find(i);
             if (seen.has(root)) continue;
             seen.add(root);
             const group = groups.get(root);
-            if (group.length === 1) { merged.push(group[0]); continue; }
+            if (group.length === 1) { afterMerge.push({ ...group[0] }); continue; }
+            mergedEntries += group.length - 1;
             const best = group.reduce((a, b) => {
                 let score = 0;
                 if (b.image && !a.image) score++;
@@ -553,14 +539,35 @@ const App = {
                 if (b.id && !b.id.startsWith('manual-') && !b.id.startsWith('import-')) score++;
                 return score >= 2 ? b : a;
             });
-            const totalQty = group.reduce((s, c) => s + (c.quantity || 1), 0);
-            merged.push({ ...best, quantity: totalQty });
+            afterMerge.push({ ...best, quantity: group.reduce((s, c) => s + (c.quantity || 1), 0) });
         }
 
-        this.collection = merged;
+        // Étape 2 : cartes avec quantity > 1 (exemplaires en double)
+        const withQty = afterMerge.filter(c => (c.quantity || 1) > 1);
+
+        if (mergedEntries === 0 && withQty.length === 0) {
+            this.showToast('Aucun doublon trouve !');
+            return;
+        }
+
+        let msg = '';
+        if (mergedEntries > 0) msg += `${mergedEntries} entree(s) dupliquee(s) a fusionner.\n`;
+        if (withQty.length > 0) msg += `${withQty.length} carte(s) ont plusieurs exemplaires (x2, x3...).\nRemettre toutes les quantites a 1 ?`;
+
+        if (!confirm(msg + '\n\nContinuer ?')) return;
+
+        // Appliquer fusion des entrées
+        this.collection = afterMerge;
+
+        // Remettre les quantités à 1 si confirmé et qu'il y en a
+        if (withQty.length > 0) {
+            for (const card of this.collection) card.quantity = 1;
+        }
+
         this.saveCollection();
         this.renderCollection();
-        this.showToast(`${totalDupes} doublon(s) fusionnes !`);
+        const total = mergedEntries + withQty.length;
+        this.showToast(`${total} doublon(s) supprimes !`);
     },
 
     // ================================================================
