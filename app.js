@@ -438,19 +438,11 @@ const App = {
                 </div>`;
         }
 
-        // Bind clics zoom sur cartes manquantes
+        // Bind clics zoom sur cartes manquantes — réutilise le même modal que les cartes possédées
         container.querySelectorAll('.missing-card[data-missing]').forEach(el => {
             el.addEventListener('click', () => {
                 const d = JSON.parse(el.dataset.missing);
-                document.getElementById('missing-modal-image').src = d.img || '';
-                document.getElementById('missing-modal-image').style.display = d.img ? 'block' : 'none';
-                document.getElementById('missing-modal-name').textContent = d.frName || d.name;
-                document.getElementById('missing-modal-meta').textContent = `${d.set || ''} · ${this.rarityLabel(d.rarity)}`;
-                const priceStr = d.price && d.price !== '?' ? `${d.price} €` : 'Prix inconnu';
-                const foilStr = d.priceFoil ? ` · Foil: ${d.priceFoil} €` : '';
-                document.getElementById('missing-modal-price').textContent = priceStr + foilStr;
-                document.getElementById('missing-modal-links').innerHTML = buildRefLinks(d.frName || d.name);
-                document.getElementById('missing-modal').classList.remove('hidden');
+                this.showMissingCardModal(d);
             });
         });
 
@@ -810,6 +802,30 @@ const App = {
 
         document.getElementById('card-modal').classList.remove('hidden');
         document.getElementById('card-modal').dataset.cardId = cardId;
+        document.getElementById('card-modal').dataset.missing = '';
+        document.querySelector('#card-modal .modal-actions').style.display = '';
+    },
+
+    showMissingCardModal(d) {
+        document.getElementById('modal-image').src = d.img || '';
+        document.getElementById('modal-image').style.display = d.img ? 'block' : 'none';
+        document.getElementById('modal-name').textContent = d.frName || d.name;
+        document.getElementById('modal-type').textContent = '';
+        document.getElementById('modal-set').textContent = `Extension: ${d.set || ''}`;
+        document.getElementById('modal-rarity').textContent = `Rareté: ${this.rarityLabel(d.rarity)}`;
+        const priceStr = d.price && d.price !== '?' ? `${d.price} €` : 'Prix inconnu';
+        const foilStr = d.priceFoil ? ` · Foil: ${d.priceFoil} €` : '';
+        document.getElementById('modal-price').textContent = `Prix: ${priceStr}${foilStr}`;
+
+        let ref = document.getElementById('modal-ref-links');
+        if (!ref) { ref = document.createElement('div'); ref.id = 'modal-ref-links'; ref.className = 'ref-links-bar'; document.getElementById('modal-price').after(ref); }
+        ref.innerHTML = `<span class="ref-links-label">Voir prix sur :</span>${buildRefLinks(d.frName || d.name)}`;
+
+        // Cacher les contrôles d'édition (quantité, foil, supprimer)
+        document.querySelector('#card-modal .modal-actions').style.display = 'none';
+        document.getElementById('card-modal').classList.remove('hidden');
+        document.getElementById('card-modal').dataset.cardId = '';
+        document.getElementById('card-modal').dataset.missing = 'true';
     },
 
     updateCardQuantity(e) {
