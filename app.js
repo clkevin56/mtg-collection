@@ -1279,18 +1279,23 @@ const App = {
             const doc = await docRef.get();
 
             if (doc.exists) {
-                const cloudCards = doc.data().collection || [];
+                const cloudManifest = doc.data().collection || [];
                 const localCards = this.collection;
 
-                if (localCards.length > 0 && cloudCards.length > 0) {
-                    // Fusion : cloud = base, on ajoute les cartes locales absentes du cloud
-                    this.collection = this.mergeCollections(cloudCards, localCards);
-                } else if (cloudCards.length > 0) {
-                    this.collection = cloudCards;
+                if (cloudManifest.length > 0) {
+                    if (localCards.length > 0) {
+                        // Fusion : appliquer les quantités/foil du cloud sur les cartes locales
+                        // + ajouter les IDs cloud absents en local (avec données minimales)
+                        this.collection = this.mergeCollections(cloudManifest, localCards);
+                    } else {
+                        // Pas de données locales : reconstruire depuis le manifest cloud
+                        // On garde les entrées slim — les images seront chargées à l'affichage
+                        this.collection = cloudManifest;
+                    }
+                    localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
+                    this.renderCollection();
+                    this.updateStats();
                 }
-                localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
-                this.renderCollection();
-                this.updateStats();
             }
 
             // Pousser l'etat courant vers le cloud
@@ -1300,15 +1305,17 @@ const App = {
             this._unsubscribe = docRef.onSnapshot(snapshot => {
                 if (!snapshot.exists) return;
                 if (this._ignoringSnapshot) return;
-                // Ignorer nos propres ecritures locales
                 if (snapshot.metadata.hasPendingWrites) return;
 
-                const cloudCards = snapshot.data().collection || [];
-                const localStr = JSON.stringify(this.collection);
-                const cloudStr = JSON.stringify(cloudCards);
-                if (cloudStr === localStr) return; // Deja a jour
+                const cloudManifest = snapshot.data().collection || [];
+                // Comparer uniquement les IDs+quantités pour détecter un vrai changement
+                const localManifest = this.collection.map(c => ({ id: c.id, quantity: c.quantity || 1, foil: c.foil || false }));
+                const cloudStr = JSON.stringify(cloudManifest.map(c => c.id + c.quantity + c.foil).sort());
+                const localStr = JSON.stringify(localManifest.map(c => c.id + c.quantity + c.foil).sort());
+                if (cloudStr === localStr) return;
 
-                this.collection = cloudCards;
+                // Changement venant d'un autre appareil : fusionner
+                this.collection = this.mergeCollections(cloudManifest, this.collection);
                 localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
                 this.renderCollection();
                 this.updateStats();
@@ -1332,18 +1339,22 @@ const App = {
         clearTimeout(this._cloudSaveTimer);
     },
 
-    mergeCollections(cloud, local) {
+    mergeCollections(cloudManifest, local) {
+        // cloudManifest = [{id, quantity, foil}] (slim, depuis Firebase)
+        // local = collection complète avec images, noms, prix...
         const localMap = new Map(local.map(c => [c.id, c]));
-        // Prend les cartes cloud mais restaure l'image depuis local si disponible
-        const merged = cloud.map(c => {
+        const cloudIds = new Set(cloudManifest.map(c => c.id));
+
+        // Pour chaque entrée cloud, prendre les données complètes du local si dispo
+        const merged = cloudManifest.map(c => {
             const loc = localMap.get(c.id);
-            return loc ? { ...c, image: loc.image || c.image } : c;
+            if (loc) return { ...loc, quantity: c.quantity ?? loc.quantity, foil: c.foil ?? loc.foil };
+            return c; // carte absente en local : garder l'entrée slim (sera enrichie à l'affichage)
         });
-        const cloudIds = new Set(cloud.map(c => c.id));
+
+        // Ajouter les cartes locales absentes du cloud (nouvelles cartes pas encore syncées)
         for (const card of local) {
-            if (!cloudIds.has(card.id)) {
-                merged.push(card);
-            }
+            if (!cloudIds.has(card.id)) merged.push(card);
         }
         return merged;
     },
@@ -1361,11 +1372,13 @@ const App = {
         try {
             // Strip image/type/setName/lang before push — URLs are re-fetchées depuis Scryfall
             // Réduit la taille : ~350 bytes/carte → ~120 bytes/carte (limite Firestore = 1MB)
-            const slim = this.collection.map(({ image, type, setName, lang, ...keep }) => keep);
+            // Stocker uniquement {id, quantity, foil} — ~60 bytes/carte vs ~350
+            // 10000 cartes x 60 bytes = ~600KB, bien sous la limite Firestore de 1MB
+            const manifest = this.collection.map(c => ({ id: c.id, quantity: c.quantity || 1, foil: c.foil || false }));
             await this.fbDb.collection('users').doc(this._syncUid).set({
-                collection: slim,
+                collection: manifest,
                 lastModified: firebase.firestore.FieldValue.serverTimestamp(),
-                cardCount: slim.length
+                cardCount: manifest.length
             });
             this.showSyncStatus('synced');
         } catch (e) {
