@@ -53,6 +53,7 @@ const App = {
     collection: [],
     setsCache: {},         // code -> { name, card_count, icon_svg_uri, released_at }
     setCardsCache: {},     // code -> [ card objects from scryfall ]
+    _missingCardData: new Map(), // element -> scryfall card data
 
     fbAuth: null,
     fbDb: null,
@@ -416,35 +417,36 @@ const App = {
         if (missing.length === 0) {
             container.innerHTML = '<p class="edition-section-title" style="color:var(--success)">Edition complète !</p>';
         } else {
+            const missingData = missing.map(c => ({
+                name: c.name,
+                frName: c.printed_name || c.name,
+                img: c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || '',
+                imgSmall: c.image_uris?.small || c.card_faces?.[0]?.image_uris?.small || '',
+                set: c.set_name,
+                rarity: c.rarity,
+                price: c.prices?.eur || c.prices?.usd || null,
+                priceFoil: c.prices?.eur_foil || c.prices?.usd_foil || null
+            }));
+
             container.innerHTML = `
                 <div class="edition-section-title">Cartes manquantes (${missing.length})</div>
                 <div class="edition-cards">
-                    ${missing.map(c => {
-                        const frName = c.printed_name || c.name;
-                        const img = c.image_uris?.small || c.card_faces?.[0]?.image_uris?.small || '';
-                        const price = c.prices?.eur || c.prices?.usd || '?';
-                        const dataScryfall = JSON.stringify({
-                            name: c.name, frName, img: c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || img,
-                            set: c.set_name, rarity: c.rarity, price, priceFoil: c.prices?.eur_foil || c.prices?.usd_foil || null
-                        }).replace(/'/g, '&#39;');
-                        return `<div class="card-item missing-card rarity-${c.rarity || 'common'}" data-missing='${dataScryfall}' style="cursor:pointer">
-                            ${img ? `<img src="${img}" alt="${frName}" loading="lazy">` : `<div class="no-image">${frName}</div>`}
-                            <div class="card-info">
-                                <div class="card-name">${frName}</div>
-                                <div class="card-meta"><span>${price} €</span></div>
-                            </div>
-                        </div>`;
-                    }).join('')}
+                    ${missingData.map((d, i) => `<div class="card-item missing-card rarity-${d.rarity || 'common'}" data-missing-idx="${i}" style="cursor:pointer">
+                        ${d.imgSmall ? `<img src="${d.imgSmall}" alt="${d.frName}" loading="lazy">` : `<div class="no-image">${d.frName}</div>`}
+                        <div class="card-info">
+                            <div class="card-name">${d.frName}</div>
+                            <div class="card-meta"><span>${d.price ? d.price + ' €' : '?'}</span></div>
+                        </div>
+                    </div>`).join('')}
                 </div>`;
-        }
 
-        // Bind clics zoom sur cartes manquantes — réutilise le même modal que les cartes possédées
-        container.querySelectorAll('.missing-card[data-missing]').forEach(el => {
-            el.addEventListener('click', () => {
-                const d = JSON.parse(el.dataset.missing);
-                this.showMissingCardModal(d);
+            // Stocker les données dans la Map et binder les clics
+            container.querySelectorAll('.missing-card[data-missing-idx]').forEach(el => {
+                const d = missingData[parseInt(el.dataset.missingIdx)];
+                this._missingCardData.set(el, d);
+                el.addEventListener('click', () => this.showMissingCardModal(d));
             });
-        });
+        }
 
         container.dataset.loaded = 'true';
         btn.textContent = 'Masquer/Afficher manquantes';
