@@ -346,9 +346,16 @@ const App = {
                         <a href="${RefSites.mtgcards.searchUrl(setName)}" target="_blank" rel="noopener" class="edition-playin-link" style="background:#457b9d">📖 MTGCards.fr</a>
                         <button class="btn-secondary btn-load-missing" data-set="${setCode}" style="font-size:0.75rem;padding:0.3rem 0.6rem">Voir les cartes manquantes</button>
                         <button class="btn-secondary btn-refresh-set-prices" data-set="${setCode}" style="font-size:0.75rem;padding:0.3rem 0.6rem">💰 Rafraîchir les prix</button>
+                        <select class="edition-sort" data-set="${setCode}">
+                            <option value="rarity">Trier : Rareté</option>
+                            <option value="price-desc">Prix : + cher d'abord</option>
+                            <option value="price-asc">Prix : - cher d'abord</option>
+                            <option value="alpha">Ordre alphabétique</option>
+                            <option value="color">Par couleur</option>
+                        </select>
                     </div>
                     <div class="edition-section-title">Mes cartes (${ownedCount})</div>
-                    <div class="edition-cards">${this.renderEditionCards(cards, nameFilter, colorFilter, rarityFilter)}</div>
+                    <div class="edition-cards">${this.renderEditionCards(cards, nameFilter, colorFilter, rarityFilter, 'rarity')}</div>
                     <div class="edition-missing-cards" data-set="${setCode}"></div>
                 </div>
             </div>`;
@@ -379,9 +386,25 @@ const App = {
                 this.refreshPricesForSet(btn.dataset.set, btn);
             });
         });
+
+        // Bind tri par édition
+        grid.querySelectorAll('.edition-sort').forEach(select => {
+            select.addEventListener('change', (e) => {
+                e.stopPropagation();
+                const setCode = select.dataset.set;
+                const sortValue = select.value;
+                const nameFilter = document.getElementById('filter-name').value.toLowerCase();
+                const colorFilter = document.getElementById('filter-color').value;
+                const rarityFilter = document.getElementById('filter-rarity').value;
+                const cards = this.collection.filter(c => (c.set || 'UNKNOWN') === setCode);
+                const cardsContainer = select.closest('.edition-body').querySelector('.edition-cards');
+                cardsContainer.innerHTML = this.renderEditionCards(cards, nameFilter, colorFilter, rarityFilter, sortValue);
+                this.bindCardClicks(cardsContainer);
+            });
+        });
     },
 
-    renderEditionCards(cards, nameFilter, colorFilter, rarityFilter) {
+    renderEditionCards(cards, nameFilter, colorFilter, rarityFilter, sortMode = 'rarity') {
         let filtered = cards;
         if (nameFilter) filtered = filtered.filter(c => dn(c).toLowerCase().includes(nameFilter) || (c.name || '').toLowerCase().includes(nameFilter));
         if (colorFilter) {
@@ -392,7 +415,26 @@ const App = {
         if (rarityFilter) filtered = filtered.filter(c => c.rarity === rarityFilter);
 
         if (filtered.length === 0) return '<p style="color:var(--text-secondary);font-size:0.8rem;">Aucune carte avec ces filtres.</p>';
-        filtered.sort((a, b) => (RARITY_ORDER[a.rarity] ?? 0) - (RARITY_ORDER[b.rarity] ?? 0));
+
+        const COLOR_ORDER = { W: 0, U: 1, B: 2, R: 3, G: 4 };
+        const getColorOrder = c => {
+            if (!c.colors?.length) return 6;
+            if (c.colors.length > 1) return 5;
+            return COLOR_ORDER[c.colors[0]] ?? 7;
+        };
+
+        if (sortMode === 'price-desc') {
+            filtered.sort((a, b) => ((b.foil && b.priceFoil ? b.priceFoil : b.price) || 0) - ((a.foil && a.priceFoil ? a.priceFoil : a.price) || 0));
+        } else if (sortMode === 'price-asc') {
+            filtered.sort((a, b) => ((a.foil && a.priceFoil ? a.priceFoil : a.price) || 0) - ((b.foil && b.priceFoil ? b.priceFoil : b.price) || 0));
+        } else if (sortMode === 'alpha') {
+            filtered.sort((a, b) => dn(a).localeCompare(dn(b), 'fr'));
+        } else if (sortMode === 'color') {
+            filtered.sort((a, b) => getColorOrder(a) - getColorOrder(b) || dn(a).localeCompare(dn(b), 'fr'));
+        } else {
+            filtered.sort((a, b) => (RARITY_ORDER[a.rarity] ?? 0) - (RARITY_ORDER[b.rarity] ?? 0));
+        }
+
         return filtered.map(c => this.renderCardItem(c)).join('');
     },
 
