@@ -879,6 +879,10 @@ const App = {
         try { cards = JSON.parse(text); } catch { this.showToast('Fichier JSON invalide.', true); return; }
         if (!Array.isArray(cards) || !cards.length) { this.showToast('Aucune carte dans le fichier.', true); return; }
 
+        // Bloquer le listener Firebase pendant tout l'import pour éviter qu'il réécrase la collection
+        this._ignoringSnapshot = true;
+        clearTimeout(this._cloudSaveTimer);
+
         const progressEl = document.getElementById('excel-import-progress');
         const fillEl = document.getElementById('excel-progress-fill');
         const textEl = document.getElementById('excel-progress-text');
@@ -989,9 +993,12 @@ const App = {
             } catch {}
             await new Promise(r => setTimeout(r, 80));
         }
-        this.saveCollection();
-        this.renderCollection();
+        localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
         this.updateStats();
+        this.renderCollection();
+        // Pousser vers le cloud puis réactiver le listener
+        await this._pushToCloud();
+        this._ignoringSnapshot = false;
         textEl.textContent = `✅ Import terminé ! ${totalAdded} cartes ajoutées, ${priceCount} prix récupérés, ${totalNotFound} non trouvées.`;
         this.showToast(`${totalAdded} cartes importées depuis Excel !`);
     },
