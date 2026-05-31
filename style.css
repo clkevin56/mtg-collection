@@ -1000,7 +1000,13 @@ hr {
 .card-item.missing-card {
     opacity: 0.35;
     filter: grayscale(0.7);
-    pointer-events: none;
+    cursor: pointer;
+}
+
+.card-item.missing-card:hover {
+    opacity: 0.65;
+    filter: grayscale(0.3);
+    transform: translateY(-4px);
 }
 
 .edition-actions {
