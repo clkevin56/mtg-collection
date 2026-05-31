@@ -1333,8 +1333,13 @@ const App = {
     },
 
     mergeCollections(cloud, local) {
+        const localMap = new Map(local.map(c => [c.id, c]));
+        // Prend les cartes cloud mais restaure l'image depuis local si disponible
+        const merged = cloud.map(c => {
+            const loc = localMap.get(c.id);
+            return loc ? { ...c, image: loc.image || c.image } : c;
+        });
         const cloudIds = new Set(cloud.map(c => c.id));
-        const merged = [...cloud];
         for (const card of local) {
             if (!cloudIds.has(card.id)) {
                 merged.push(card);
@@ -1354,10 +1359,13 @@ const App = {
         if (!this.fbDb || !this._syncUid) return;
         this.showSyncStatus('saving');
         try {
+            // Strip image/type/setName/lang before push — URLs are re-fetchées depuis Scryfall
+            // Réduit la taille : ~350 bytes/carte → ~120 bytes/carte (limite Firestore = 1MB)
+            const slim = this.collection.map(({ image, type, setName, lang, ...keep }) => keep);
             await this.fbDb.collection('users').doc(this._syncUid).set({
-                collection: this.collection,
+                collection: slim,
                 lastModified: firebase.firestore.FieldValue.serverTimestamp(),
-                cardCount: this.collection.length
+                cardCount: slim.length
             });
             this.showSyncStatus('synced');
         } catch (e) {
