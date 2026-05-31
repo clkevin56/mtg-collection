@@ -344,6 +344,7 @@ const App = {
                         <a href="${RefSites.playin.searchUrl(setName)}" target="_blank" rel="noopener" class="edition-playin-link">🛒 Voir sur Playin</a>
                         <a href="${RefSites.mtgcards.searchUrl(setName)}" target="_blank" rel="noopener" class="edition-playin-link" style="background:#457b9d">📖 MTGCards.fr</a>
                         <button class="btn-secondary btn-load-missing" data-set="${setCode}" style="font-size:0.75rem;padding:0.3rem 0.6rem">Voir les cartes manquantes</button>
+                        <button class="btn-secondary btn-refresh-set-prices" data-set="${setCode}" style="font-size:0.75rem;padding:0.3rem 0.6rem">💰 Rafraîchir les prix</button>
                     </div>
                     <div class="edition-section-title">Mes cartes (${ownedCount})</div>
                     <div class="edition-cards">${this.renderEditionCards(cards, nameFilter, colorFilter, rarityFilter)}</div>
@@ -367,6 +368,14 @@ const App = {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.loadMissingCards(btn.dataset.set);
+            });
+        });
+
+        // Bind "rafraîchir les prix" par édition
+        grid.querySelectorAll('.btn-refresh-set-prices').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.refreshPricesForSet(btn.dataset.set, btn);
             });
         });
     },
@@ -414,22 +423,66 @@ const App = {
                         const frName = c.printed_name || c.name;
                         const img = c.image_uris?.small || c.card_faces?.[0]?.image_uris?.small || '';
                         const price = c.prices?.eur || c.prices?.usd || '?';
-                        return `<div class="card-item missing-card rarity-${c.rarity || 'common'}">
+                        const dataScryfall = JSON.stringify({
+                            name: c.name, frName, img: c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || img,
+                            set: c.set_name, rarity: c.rarity, price, priceFoil: c.prices?.eur_foil || c.prices?.usd_foil || null
+                        }).replace(/'/g, '&#39;');
+                        return `<div class="card-item missing-card rarity-${c.rarity || 'common'}" data-missing='${dataScryfall}' style="cursor:pointer">
                             ${img ? `<img src="${img}" alt="${frName}" loading="lazy">` : `<div class="no-image">${frName}</div>`}
                             <div class="card-info">
                                 <div class="card-name">${frName}</div>
-                                <div class="card-meta"><span>${price} €</span>
-                                    <a href="${RefSites.playin.searchUrl(frName)}" target="_blank" rel="noopener" style="color:var(--accent);font-size:0.65rem;text-decoration:none;">Playin</a>
-                                </div>
+                                <div class="card-meta"><span>${price} €</span></div>
                             </div>
                         </div>`;
                     }).join('')}
                 </div>`;
         }
 
+        // Bind clics zoom sur cartes manquantes
+        container.querySelectorAll('.missing-card[data-missing]').forEach(el => {
+            el.addEventListener('click', () => {
+                const d = JSON.parse(el.dataset.missing);
+                document.getElementById('missing-modal-image').src = d.img || '';
+                document.getElementById('missing-modal-image').style.display = d.img ? 'block' : 'none';
+                document.getElementById('missing-modal-name').textContent = d.frName || d.name;
+                document.getElementById('missing-modal-meta').textContent = `${d.set || ''} · ${this.rarityLabel(d.rarity)}`;
+                const priceStr = d.price && d.price !== '?' ? `${d.price} €` : 'Prix inconnu';
+                const foilStr = d.priceFoil ? ` · Foil: ${d.priceFoil} €` : '';
+                document.getElementById('missing-modal-price').textContent = priceStr + foilStr;
+                document.getElementById('missing-modal-links').innerHTML = buildRefLinks(d.frName || d.name);
+                document.getElementById('missing-modal').classList.remove('hidden');
+            });
+        });
+
         container.dataset.loaded = 'true';
         btn.textContent = 'Masquer/Afficher manquantes';
         btn.disabled = false;
+    },
+
+    async refreshPricesForSet(setCode, btn) {
+        const cards = this.collection.filter(c => c.set === setCode);
+        if (!cards.length) return;
+        const origText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '⏳ Mise à jour...';
+        let updated = 0;
+        for (const card of cards) {
+            if (!card.name) continue;
+            try {
+                const prices = await this.fetchPriceEN(card.name);
+                if (prices && (prices.price > 0 || prices.priceFoil > 0)) {
+                    card.price = prices.price;
+                    card.priceFoil = prices.priceFoil;
+                    updated++;
+                }
+            } catch {}
+            await new Promise(r => setTimeout(r, 80));
+        }
+        this.saveCollection();
+        this.renderCollection();
+        btn.disabled = false;
+        btn.textContent = origText;
+        this.showToast(`${updated} prix mis à jour pour ${setCode} !`);
     },
 
     renderCardItem(card) {

@@ -207,6 +207,22 @@
         </section>
     </main>
 
+    <!-- Modal zoom carte manquante -->
+    <div id="missing-modal" class="modal hidden">
+        <div class="modal-content" style="max-width:360px">
+            <button class="modal-close">&times;</button>
+            <div class="modal-body" style="flex-direction:column;align-items:center;gap:0.75rem">
+                <img id="missing-modal-image" src="" alt="" style="width:100%;border-radius:8px">
+                <div class="modal-info" style="width:100%">
+                    <h2 id="missing-modal-name" style="font-size:1rem"></h2>
+                    <p id="missing-modal-meta" style="font-size:0.85rem;color:var(--text-secondary)"></p>
+                    <p id="missing-modal-price" style="font-size:0.9rem;color:var(--accent);font-weight:600"></p>
+                    <div id="missing-modal-links" style="margin-top:0.5rem"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal for card details -->
     <div id="card-modal" class="modal hidden">
         <div class="modal-content">
