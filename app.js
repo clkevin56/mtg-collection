@@ -60,6 +60,7 @@ const App = {
     _syncUid: null,
     _unsubscribe: null,
     _cloudSaveTimer: null,
+    _enriching: false,
 
     init() {
         this.loadData();
@@ -299,6 +300,22 @@ const App = {
             groups[key].push(card);
         }
 
+        // Bannière de réparation si des cartes n'ont pas d'édition
+        const unknownCount = (groups['UNKNOWN'] || []).length;
+        let repairBanner = '';
+        if (unknownCount > 0 && !this._enriching) {
+            repairBanner = `<div id="repair-banner" style="background:#e63946;color:#fff;padding:1rem;border-radius:8px;margin-bottom:1rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+                <span>⚠️ <strong>${unknownCount} carte(s)</strong> sans édition détectée(s).</span>
+                <button id="btn-repair-editions" style="background:#fff;color:#e63946;border:none;padding:0.5rem 1rem;border-radius:6px;font-weight:bold;cursor:pointer">Charger les éditions</button>
+                <div id="repair-progress" style="display:none;width:100%;margin-top:0.5rem">
+                    <div style="background:rgba(255,255,255,0.3);border-radius:4px;height:8px">
+                        <div id="repair-progress-fill" style="background:#fff;height:8px;border-radius:4px;width:0%;transition:width 0.3s"></div>
+                    </div>
+                    <span id="repair-progress-text" style="font-size:0.8rem">0 / ${unknownCount} cartes chargées...</span>
+                </div>
+            </div>`;
+        }
+
         if (Object.keys(groups).length === 0) {
             grid.innerHTML = `<div class="empty-state"><p>Aucune carte dans votre collection</p><small>Ajoutez des cartes via "Scanner", "Ajouter" ou "Importer"</small></div>`;
             return;
@@ -311,7 +328,7 @@ const App = {
             return a.localeCompare(b);
         });
 
-        grid.innerHTML = sortedKeys.map(setCode => {
+        grid.innerHTML = repairBanner + sortedKeys.map(setCode => {
             const cards = groups[setCode];
             const setInfo = this.getSetInfo(setCode);
             const setName = setInfo?.name || cards[0]?.setName || setCode;
@@ -360,6 +377,20 @@ const App = {
                 </div>
             </div>`;
         }).join('');
+
+        // Bind bouton réparation éditions
+        const repairBtn = grid.querySelector('#btn-repair-editions');
+        if (repairBtn) {
+            repairBtn.addEventListener('click', () => {
+                const slimCards = this.collection.filter(c => !c.set);
+                if (slimCards.length > 0) {
+                    repairBtn.disabled = true;
+                    repairBtn.textContent = 'Chargement...';
+                    document.getElementById('repair-progress').style.display = 'block';
+                    this.enrichSlimCardsFromScryfall(slimCards);
+                }
+            });
+        }
 
         // Bind toggle (fermé par défaut, ouvre au clic)
         grid.querySelectorAll('.edition-header').forEach(header => {
@@ -1451,38 +1482,61 @@ const App = {
     },
 
     async enrichSlimCardsFromScryfall(slimCards) {
+        this._enriching = true;
         const BATCH = 75;
+        let enriched = 0;
+        const total = slimCards.length;
+        const fillEl = document.getElementById('repair-progress-fill');
+        const textEl = document.getElementById('repair-progress-text');
+
         for (let i = 0; i < slimCards.length; i += BATCH) {
-            const batch = slimCards.slice(i, i + BATCH);
+            const batch = slimCards.slice(i, i + BATCH).filter(c => c.id && !c.id.startsWith('manual-'));
+            if (batch.length === 0) { enriched += BATCH; continue; }
             try {
                 const resp = await fetch('https://api.scryfall.com/cards/collection', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ identifiers: batch.map(c => ({ id: c.id })) })
                 });
-                if (!resp.ok) continue;
-                const data = await resp.json();
-                for (const card of (data.data || [])) {
-                    const local = this.collection.find(c => c.id === card.id);
-                    if (!local) continue;
-                    local.name = card.name;
-                    local.set = card.set?.toUpperCase();
-                    local.setName = card.set_name;
-                    local.rarity = card.rarity;
-                    local.type = card.type_line;
-                    local.colors = card.colors || card.color_identity || [];
-                    local.image = card.image_uris?.normal || card.card_faces?.[0]?.image_uris?.normal || '';
-                    local.price = parseFloat(card.prices?.eur || card.prices?.usd || 0);
-                    local.priceFoil = parseFloat(card.prices?.eur_foil || card.prices?.usd_foil || 0);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    for (const card of (data.data || [])) {
+                        const local = this.collection.find(c => c.id === card.id);
+                        if (!local) continue;
+                        local.name = card.name || local.name;
+                        local.set = (card.set || '').toUpperCase();
+                        local.setName = card.set_name || '';
+                        local.rarity = card.rarity || '';
+                        local.type = card.type_line || '';
+                        local.colors = card.colors || card.color_identity || [];
+                        local.image = card.image_uris?.normal || card.card_faces?.[0]?.image_uris?.normal || '';
+                        local.price = parseFloat(card.prices?.eur || card.prices?.usd || 0);
+                        local.priceFoil = parseFloat(card.prices?.eur_foil || card.prices?.usd_foil || 0);
+                        enriched++;
+                    }
                 }
-            } catch (e) { console.warn('Enrichissement batch échoué:', e); }
+            } catch (e) { console.warn('Batch échoué:', e); }
+
+            // Mise à jour barre de progression
+            const pct = Math.round((Math.min(enriched, total) / total) * 100);
+            if (fillEl) fillEl.style.width = pct + '%';
+            if (textEl) textEl.textContent = `${enriched} / ${total} cartes chargées...`;
+
+            // Re-render toutes les 5 batches pour montrer la progression
+            if ((i / BATCH) % 5 === 4) {
+                localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
+                this.renderCollection();
+                this.updateStats();
+            }
             await new Promise(r => setTimeout(r, 120));
         }
+
+        this._enriching = false;
         localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
         this.renderCollection();
         this.updateStats();
         this.saveToCloud();
-        this.showToast('Données des cartes chargées !');
+        this.showToast('Éditions chargées !');
     },
 
     mergeCollections(cloudManifest, local) {
