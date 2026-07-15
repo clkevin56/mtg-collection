@@ -203,6 +203,8 @@ const App = {
         document.getElementById('btn-cancel-import').addEventListener('click', () => this.cancelImport());
         document.getElementById('btn-export').addEventListener('click', () => this.exportCSV());
         document.getElementById('btn-backup').addEventListener('click', () => this.backupJSON());
+        const restoreBtn = document.getElementById('btn-restore-server');
+        if (restoreBtn) restoreBtn.addEventListener('click', () => this.restoreFromServerExcel());
         document.getElementById('btn-refresh-prices').addEventListener('click', () => this.refreshPrices());
         document.getElementById('btn-remove-duplicates').addEventListener('click', () => this.removeDuplicates());
 
@@ -1020,7 +1022,27 @@ const App = {
     async importExcelJSON(file) {
         const text = await file.text();
         let cards;
-        try { cards = JSON.parse(text); } catch { this.showToast('Fichier JSON invalide.', true); return; }
+        try { cards = JSON.parse(text.replace(/^﻿/, '')); } catch { this.showToast('Fichier JSON invalide.', true); return; }
+        return this.importExcelCards(cards);
+    },
+
+    // Restaure la collection depuis le fichier excel-cards.json hébergé sur le serveur
+    async restoreFromServerExcel() {
+        if (!confirm('Restaurer toute ta collection depuis le fichier sauvegardé ? Cela va charger ~8400 cartes avec leurs éditions.')) return;
+        this.showToast('Récupération du fichier de sauvegarde...');
+        try {
+            const resp = await fetch('excel-cards.json?_=' + new URL(location.href).searchParams.get('v'));
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const text = await resp.text();
+            const cards = JSON.parse(text.replace(/^﻿/, ''));
+            await this.importExcelCards(cards);
+        } catch (e) {
+            this.showToast('Erreur récupération : ' + e.message, true);
+            console.warn('restoreFromServerExcel:', e);
+        }
+    },
+
+    async importExcelCards(cards) {
         if (!Array.isArray(cards) || !cards.length) { this.showToast('Aucune carte dans le fichier.', true); return; }
 
         // Bloquer le listener Firebase pendant tout l'import pour éviter qu'il réécrase la collection
