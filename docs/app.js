@@ -1396,18 +1396,16 @@ const App = {
                 const localCards = this.collection;
 
                 if (cloudManifest.length > 0) {
-                    if (localCards.length > 0) {
-                        // Fusion : appliquer les quantités/foil du cloud sur les cartes locales
-                        // + ajouter les IDs cloud absents en local (avec données minimales)
-                        this.collection = this.mergeCollections(cloudManifest, localCards);
-                    } else {
-                        // Pas de données locales : reconstruire depuis le manifest cloud
-                        // On garde les entrées slim — les images seront chargées à l'affichage
-                        this.collection = cloudManifest;
-                    }
+                    this.collection = this.mergeCollections(cloudManifest, localCards);
                     localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
                     this.renderCollection();
                     this.updateStats();
+                    // Enrichir en arrière-plan les cartes slim (sans set/name) via Scryfall
+                    const slimCards = this.collection.filter(c => !c.set);
+                    if (slimCards.length > 0) {
+                        this.showToast(`Chargement des données pour ${slimCards.length} cartes...`);
+                        this.enrichSlimCardsFromScryfall(slimCards);
+                    }
                 }
             }
 
@@ -1450,6 +1448,41 @@ const App = {
         }
         this._syncUid = null;
         clearTimeout(this._cloudSaveTimer);
+    },
+
+    async enrichSlimCardsFromScryfall(slimCards) {
+        const BATCH = 75;
+        for (let i = 0; i < slimCards.length; i += BATCH) {
+            const batch = slimCards.slice(i, i + BATCH);
+            try {
+                const resp = await fetch('https://api.scryfall.com/cards/collection', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ identifiers: batch.map(c => ({ id: c.id })) })
+                });
+                if (!resp.ok) continue;
+                const data = await resp.json();
+                for (const card of (data.data || [])) {
+                    const local = this.collection.find(c => c.id === card.id);
+                    if (!local) continue;
+                    local.name = card.name;
+                    local.set = card.set?.toUpperCase();
+                    local.setName = card.set_name;
+                    local.rarity = card.rarity;
+                    local.type = card.type_line;
+                    local.colors = card.colors || card.color_identity || [];
+                    local.image = card.image_uris?.normal || card.card_faces?.[0]?.image_uris?.normal || '';
+                    local.price = parseFloat(card.prices?.eur || card.prices?.usd || 0);
+                    local.priceFoil = parseFloat(card.prices?.eur_foil || card.prices?.usd_foil || 0);
+                }
+            } catch (e) { console.warn('Enrichissement batch échoué:', e); }
+            await new Promise(r => setTimeout(r, 120));
+        }
+        localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
+        this.renderCollection();
+        this.updateStats();
+        this.saveToCloud();
+        this.showToast('Données des cartes chargées !');
     },
 
     mergeCollections(cloudManifest, local) {
