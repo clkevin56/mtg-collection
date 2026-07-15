@@ -1402,24 +1402,24 @@ const App = {
     async signIn() {
         if (!this.fbAuth) return;
         const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+        const provider = new firebase.auth.GoogleAuthProvider();
+        // Mobile + Firefox (et navigateurs bloquant le stockage tiers) : redirection directe
+        if (isMobile) {
+            try { await this.fbAuth.signInWithRedirect(provider); }
+            catch (e) { this.showToast('Erreur : ' + (e.code || e.message), true); console.warn(e); }
+            return;
+        }
         try {
-            const provider = new firebase.auth.GoogleAuthProvider();
-            if (isMobile) {
-                await this.fbAuth.signInWithRedirect(provider);
-            } else {
-                await this.fbAuth.signInWithPopup(provider);
-            }
+            await this.fbAuth.signInWithPopup(provider);
         } catch (e) {
-            if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') {
+            if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
+            console.warn('Sign-in error:', e);
+            // Popup bloqué ou non supporté (Firefox anti-pistage) : basculer en redirection
+            if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') {
+                try { await this.fbAuth.signInWithRedirect(provider); }
+                catch (e2) { this.showToast('Erreur : ' + (e2.code || e2.message), true); console.warn(e2); }
+            } else {
                 this.showToast('Erreur : ' + (e.code || e.message), true);
-                console.warn('Sign-in error:', e);
-                // Si le popup est bloqué sur PC, basculer en redirection
-                if (e.code === 'auth/popup-blocked') {
-                    try {
-                        const provider = new firebase.auth.GoogleAuthProvider();
-                        await this.fbAuth.signInWithRedirect(provider);
-                    } catch (e2) { console.warn('Redirect fallback error:', e2); }
-                }
             }
         }
     },
