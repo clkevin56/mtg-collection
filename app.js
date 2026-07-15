@@ -1028,15 +1028,28 @@ const App = {
 
     // Restaure la collection depuis le fichier excel-cards.json hébergé sur le serveur
     async restoreFromServerExcel() {
-        if (!confirm('Restaurer toute ta collection depuis le fichier sauvegardé ? Cela va charger ~8400 cartes avec leurs éditions.')) return;
-        this.showToast('Récupération du fichier de sauvegarde...');
+        if (!confirm('Restaurer toute ta collection depuis le fichier sauvegardé ? Cela va charger ~8400 cartes avec leurs éditions. Laisse la page ouverte quelques minutes.')) return;
+
+        // Afficher immédiatement la zone de progression et y défiler
+        const progressEl = document.getElementById('excel-import-progress');
+        const textEl = document.getElementById('excel-progress-text');
+        if (progressEl) {
+            progressEl.classList.remove('hidden');
+            progressEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        if (textEl) textEl.textContent = '⏳ Récupération du fichier de sauvegarde...';
+        this.showToast('Récupération du fichier...');
+
         try {
-            const resp = await fetch('excel-cards.json?_=' + new URL(location.href).searchParams.get('v'));
+            const resp = await fetch('excel-cards.json?_=' + Date.now());
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             const text = await resp.text();
             const cards = JSON.parse(text.replace(/^﻿/, ''));
+            if (textEl) textEl.textContent = `✅ ${cards.length} cartes trouvées. Chargement des éditions...`;
+            this.showToast(`${cards.length} cartes trouvées, chargement...`);
             await this.importExcelCards(cards);
         } catch (e) {
+            if (textEl) textEl.textContent = '❌ Erreur : ' + e.message;
             this.showToast('Erreur récupération : ' + e.message, true);
             console.warn('restoreFromServerExcel:', e);
         }
