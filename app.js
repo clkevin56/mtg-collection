@@ -1453,8 +1453,8 @@ const App = {
     },
 
     mergeCollections(cloudManifest, local) {
-        // cloudManifest = [{id, quantity, foil}] (slim, depuis Firebase)
-        // local = collection complète avec images, noms, prix...
+        // cloudManifest = [{id, quantity, foil, name, set, setName}] (depuis Firebase)
+        // local = collection complète avec images, prix...
         const localMap = new Map(local.map(c => [c.id, c]));
         const cloudIds = new Set(cloudManifest.map(c => c.id));
 
@@ -1462,7 +1462,8 @@ const App = {
         const merged = cloudManifest.map(c => {
             const loc = localMap.get(c.id);
             if (loc) return { ...loc, quantity: c.quantity ?? loc.quantity, foil: c.foil ?? loc.foil };
-            return c; // carte absente en local : garder l'entrée slim (sera enrichie à l'affichage)
+            // Pas de données locales : utiliser name/set/setName du manifest cloud
+            return { id: c.id, quantity: c.quantity || 1, foil: c.foil || false, name: c.name || '', set: c.set || '', setName: c.setName || '' };
         });
 
         // Ajouter les cartes locales absentes du cloud (nouvelles cartes pas encore syncées)
@@ -1485,9 +1486,9 @@ const App = {
         try {
             // Strip image/type/setName/lang before push — URLs are re-fetchées depuis Scryfall
             // Réduit la taille : ~350 bytes/carte → ~120 bytes/carte (limite Firestore = 1MB)
-            // Stocker uniquement {id, quantity, foil} — ~60 bytes/carte vs ~350
-            // 10000 cartes x 60 bytes = ~600KB, bien sous la limite Firestore de 1MB
-            const manifest = this.collection.map(c => ({ id: c.id, quantity: c.quantity || 1, foil: c.foil || false }));
+            // Stocker {id, quantity, foil, name, set} — ~100 bytes/carte
+            // 10000 cartes x 100 bytes = ~1MB, dans la limite Firestore
+            const manifest = this.collection.map(c => ({ id: c.id, quantity: c.quantity || 1, foil: c.foil || false, name: c.name || '', set: c.set || '', setName: c.setName || '' }));
             await this.fbDb.collection('users').doc(this._syncUid).set({
                 collection: manifest,
                 lastModified: firebase.firestore.FieldValue.serverTimestamp(),
