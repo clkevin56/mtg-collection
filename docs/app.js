@@ -1369,6 +1369,11 @@ const App = {
             this.fbDb = firebase.firestore();
             this.fbDb.enablePersistence({ synchronizeTabs: true }).catch(() => {});
             this.fbAuth.onAuthStateChanged(user => this.onAuthChanged(user));
+            // Récupérer le résultat après une redirection (mobile)
+            this.fbAuth.getRedirectResult().catch(e => {
+                if (e && e.code) this.showToast('Erreur connexion : ' + e.code, true);
+                console.warn('Redirect result error:', e);
+            });
         } catch (e) {
             console.warn('Firebase init error:', e);
             const authBar = document.getElementById('auth-bar');
@@ -1406,8 +1411,15 @@ const App = {
             }
         } catch (e) {
             if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') {
-                this.showToast('Erreur de connexion Google.', true);
+                this.showToast('Erreur : ' + (e.code || e.message), true);
                 console.warn('Sign-in error:', e);
+                // Si le popup est bloqué sur PC, basculer en redirection
+                if (e.code === 'auth/popup-blocked') {
+                    try {
+                        const provider = new firebase.auth.GoogleAuthProvider();
+                        await this.fbAuth.signInWithRedirect(provider);
+                    } catch (e2) { console.warn('Redirect fallback error:', e2); }
+                }
             }
         }
     },
