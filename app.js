@@ -1401,14 +1401,9 @@ const App = {
 
     async signIn() {
         if (!this.fbAuth) return;
-        const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
         const provider = new firebase.auth.GoogleAuthProvider();
-        // Mobile + Firefox (et navigateurs bloquant le stockage tiers) : redirection directe
-        if (isMobile) {
-            try { await this.fbAuth.signInWithRedirect(provider); }
-            catch (e) { this.showToast('Erreur : ' + (e.code || e.message), true); console.warn(e); }
-            return;
-        }
+        // Popup d'abord (marche sur Chrome mobile et PC, revient sur le site sans perdre la session).
+        // La redirection Firebase échoue souvent sur GitHub Pages (stockage tiers partitionné).
         try {
             await this.fbAuth.signInWithPopup(provider);
         } catch (e) {
