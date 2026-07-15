@@ -1396,9 +1396,14 @@ const App = {
 
     async signIn() {
         if (!this.fbAuth) return;
+        const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
         try {
             const provider = new firebase.auth.GoogleAuthProvider();
-            await this.fbAuth.signInWithPopup(provider);
+            if (isMobile) {
+                await this.fbAuth.signInWithRedirect(provider);
+            } else {
+                await this.fbAuth.signInWithPopup(provider);
+            }
         } catch (e) {
             if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') {
                 this.showToast('Erreur de connexion Google.', true);
