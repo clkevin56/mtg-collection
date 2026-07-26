@@ -943,21 +943,35 @@ const App = {
         reader.readAsText(file);
     },
     parseCSV(text) {
-        const lines = text.trim().split('\n'); if (lines.length < 2) return [];
+        const lines = text.trim().split(/\r?\n/); if (lines.length < 2) return [];
         const sep = lines[0].includes('\t') ? '\t' : ',';
         const h = lines[0].split(sep).map(x => x.trim().replace(/"/g, '').toLowerCase());
         const ni = h.findIndex(x => ['name', 'nom', 'card_name', 'cardname'].includes(x)); if (ni === -1) return [];
-        const si = h.findIndex(x => ['set', 'edition', 'set_code', 'extension'].includes(x));
+        const si = h.findIndex(x => ['set', 'edition', 'set_code', 'extension', 'set code'].includes(x));
         const qi = h.findIndex(x => ['quantity', 'qty', 'count', 'quantité'].includes(x));
-        const pi = h.findIndex(x => ['price', 'prix', 'purchase_price'].includes(x));
+        const pi = h.findIndex(x => ['price', 'prix', 'purchase_price', 'purchase price'].includes(x));
+        // Colonnes ManaBox
+        const idi = h.findIndex(x => ['scryfall id', 'scryfall_id', 'scryfallid'].includes(x));
+        const fi = h.findIndex(x => ['foil', 'finish'].includes(x));
+        const cni = h.findIndex(x => ['collector number', 'collector_number', 'collectornumber'].includes(x));
+        const ri = h.findIndex(x => ['rarity', 'rareté', 'rarete'].includes(x));
         const cards = [];
         for (let i = 1; i < lines.length; i++) {
             const v = this.parseCSVLine(lines[i], sep); const name = v[ni]?.trim(); if (!name) continue;
-            cards.push({ id: 'import-' + Date.now() + '-' + i, name, frName: name,
+            const scryfallId = idi >= 0 ? (v[idi]?.trim() || '') : '';
+            const foilVal = fi >= 0 ? (v[fi]?.trim().toLowerCase() || '') : '';
+            const isFoil = foilVal === 'foil' || foilVal === 'etched';
+            cards.push({
+                id: scryfallId || ('import-' + Date.now() + '-' + i),
+                name, frName: name,
                 set: si >= 0 ? (v[si]?.trim().toUpperCase() || '') : '',
+                collectorNumber: cni >= 0 ? (v[cni]?.trim() || '') : '',
                 quantity: qi >= 0 ? (parseInt(v[qi]) || 1) : 1,
                 price: pi >= 0 ? (parseFloat(v[pi]) || 0) : 0,
-                colors: [], type: '', rarity: '', image: '' });
+                foil: isFoil,
+                rarity: ri >= 0 ? (v[ri]?.trim().toLowerCase() || '') : '',
+                colors: [], type: '', image: ''
+            });
         }
         return cards;
     },
@@ -969,10 +983,20 @@ const App = {
     },
     async confirmImport() {
         if (!this.pendingImport) return;
-        for (const c of this.pendingImport) this.addToCollection(c);
-        this.showToast(`${this.pendingImport.length} carte(s) importée(s) !`);
+        const imported = this.pendingImport;
+        for (const c of imported) this.addToCollection(c);
+        this.showToast(`${imported.length} carte(s) importée(s) !`);
         this.pendingImport = null; document.getElementById('import-preview').classList.add('hidden');
-        for (const c of this.collection.filter(x => !x.image)) { await new Promise(r => setTimeout(r, 100)); await this.enrichCardFromScryfall(c); }
+        // Cartes avec un vrai ID Scryfall (ex: ManaBox) : enrichissement rapide par lots
+        const withScryfallId = this.collection.filter(c => c.id && !c.id.startsWith('import-') && !c.id.startsWith('manual-') && !c.set);
+        if (withScryfallId.length > 0) {
+            await this.enrichSlimCardsFromScryfall(withScryfallId);
+        }
+        // Cartes sans ID (import CSV générique) : enrichissement par nom
+        for (const c of this.collection.filter(x => !x.image && x.id?.startsWith('import-'))) {
+            await new Promise(r => setTimeout(r, 100));
+            await this.enrichCardFromScryfall(c);
+        }
     },
     cancelImport() { this.pendingImport = null; document.getElementById('import-preview').classList.add('hidden'); },
     exportCSV() {

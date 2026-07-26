@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ma Collection MTG</title>
-    <link rel="stylesheet" href="style.css?v=20260715d">
+    <link rel="stylesheet" href="style.css?v=20260715e">
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <!-- Firebase SDK (sync cloud entre appareils) -->
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -154,13 +154,14 @@
         <!-- Import View -->
         <section id="view-import" class="view">
             <div class="import-container">
-                <h2>Importer depuis un fichier CSV</h2>
+                <h2>Importer depuis un fichier CSV (ManaBox, Moxfield, Archidekt...)</h2>
                 <p class="import-info">
-                    Formats supportés : Moxfield, Archidekt, ou CSV personnalisé.<br>
-                    Le fichier doit contenir au minimum une colonne "Name" ou "name".
+                    <strong>📱 ManaBox :</strong> dans l'app, va dans <em>Collection → ⋮ → Export → CSV</em>, puis importe le fichier ici.<br>
+                    L'ID Scryfall de ManaBox permet de retrouver chaque carte avec sa bonne édition, son foil, son image et son prix.<br>
+                    Autres formats supportés : Moxfield, Archidekt, ou CSV personnalisé (colonne "Name" minimum).
                 </p>
                 <div class="import-zone" id="drop-zone">
-                    <p>Glissez un fichier ici ou cliquez pour sélectionner</p>
+                    <p>Glissez le fichier CSV ici ou cliquez pour sélectionner</p>
                     <input type="file" id="file-input" accept=".csv,.txt">
                 </div>
                 <div id="import-preview" class="import-preview hidden">
@@ -252,6 +253,6 @@
     </div>
 
 
-    <script src="app.js?v=20260715d"></script>
+    <script src="app.js?v=20260715e"></script>
 </body>
 </html>
