@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ma Collection MTG</title>
-    <link rel="stylesheet" href="style.css?v=20260715i">
+    <link rel="stylesheet" href="style.css?v=20260715j">
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <!-- Firebase SDK (sync cloud entre appareils) -->
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -16,6 +16,7 @@
         <h1>Ma Collection Magic: The Gathering</h1>
         <nav>
             <button class="nav-btn active" data-view="collection">Collection</button>
+            <button class="nav-btn" data-view="treasures">💎 Trésors</button>
 <button class="nav-btn" data-view="scanner">Scanner</button>
             <button class="nav-btn" data-view="add">Ajouter</button>
             <button class="nav-btn" data-view="import">Importer</button>
@@ -65,6 +66,20 @@
                 </select>
             </div>
             <div id="editions-grid"></div>
+        </section>
+
+        <!-- Treasures View (cartes chères + rares) -->
+        <section id="view-treasures" class="view">
+            <div class="treasures-container">
+                <h2>💎 Mes trésors</h2>
+                <p class="import-info">Tes cartes les plus précieuses, d'après les prix Cardmarket/Scryfall (référence européenne). Clique sur une carte pour la voir en grand.</p>
+                <div class="treasures-tabs">
+                    <button class="treasures-tab active" data-tab="expensive">💰 Plus chères (≥ 10 €)</button>
+                    <button class="treasures-tab" data-tab="rare">⭐ Plus rares</button>
+                </div>
+                <div class="treasures-summary" id="treasures-summary"></div>
+                <div id="treasures-grid" class="treasures-grid"></div>
+            </div>
         </section>
 
 
@@ -253,6 +268,6 @@
     </div>
 
 
-    <script src="app.js?v=20260715i"></script>
+    <script src="app.js?v=20260715j"></script>
 </body>
 </html>

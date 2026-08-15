@@ -1398,3 +1398,118 @@ hr {
 .empty-state small {
     font-size: 0.85rem;
 }
+
+/* ===== Trésors ===== */
+.treasures-container {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.treasures-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin: 1rem 0;
+    flex-wrap: wrap;
+}
+
+.treasures-tab {
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    border: 1px solid transparent;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.treasures-tab.active {
+    background: var(--accent);
+    color: #fff;
+}
+
+.treasures-summary {
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+    font-size: 0.95rem;
+}
+
+.treasures-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.treasure-card {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    border-left: 4px solid transparent;
+    transition: transform 0.1s, background 0.2s;
+}
+
+.treasure-card:hover {
+    transform: translateX(4px);
+    background: #1d2b52;
+}
+
+.treasure-card.rarity-rare { border-left-color: var(--gold); }
+.treasure-card.rarity-mythic { border-left-color: var(--accent); }
+
+.treasure-rank {
+    font-weight: 700;
+    color: var(--text-secondary);
+    min-width: 2.5rem;
+    text-align: center;
+    font-size: 0.9rem;
+}
+
+.treasure-card img {
+    width: 42px;
+    height: 58px;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.treasure-noimg {
+    width: 42px;
+    height: 58px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    flex-shrink: 0;
+    font-size: 1.5rem;
+}
+
+.treasure-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.treasure-name {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.treasure-set {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.treasure-price {
+    font-weight: 700;
+    color: var(--gold);
+    font-size: 1rem;
+}

@@ -179,6 +179,16 @@ const App = {
             btn.addEventListener('click', () => this.switchView(btn.dataset.view));
         });
 
+        // Sous-onglets Trésors (chères / rares)
+        document.querySelectorAll('.treasures-tab').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.treasures-tab').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                this._treasuresTab = btn.dataset.tab;
+                this.renderTreasures();
+            });
+        });
+
         document.getElementById('filter-name').addEventListener('input', () => this.renderCollection());
         document.getElementById('filter-color').addEventListener('change', () => this.renderCollection());
         document.getElementById('filter-rarity').addEventListener('change', () => this.renderCollection());
@@ -283,6 +293,59 @@ const App = {
         document.getElementById(`view-${view}`).classList.add('active');
         if (view !== 'scanner' && this.cameraStream) this.stopCamera();
         if (view === 'collection') this.renderCollection();
+        if (view === 'treasures') this.renderTreasures();
+    },
+
+    _treasuresTab: 'expensive',
+    renderTreasures() {
+        const grid = document.getElementById('treasures-grid');
+        const summary = document.getElementById('treasures-summary');
+        if (!grid) return;
+
+        // Prix effectif d'une carte (foil si dispo, sinon normal)
+        const priceOf = c => (c.foil && c.priceFoil > 0 ? c.priceFoil : (c.price || 0));
+
+        let list;
+        if (this._treasuresTab === 'expensive') {
+            list = this.collection
+                .filter(c => priceOf(c) >= 10)
+                .sort((a, b) => priceOf(b) - priceOf(a));
+            const totalValue = list.reduce((s, c) => s + priceOf(c) * (c.quantity || 1), 0);
+            summary.innerHTML = `<strong>${list.length}</strong> carte(s) à 10 € ou plus · valeur totale <strong>${totalValue.toFixed(2)} €</strong>`;
+        } else {
+            const rarityRank = { mythic: 4, rare: 3, uncommon: 2, common: 1 };
+            list = this.collection
+                .filter(c => c.rarity === 'mythic' || c.rarity === 'rare')
+                .sort((a, b) => (rarityRank[b.rarity] || 0) - (rarityRank[a.rarity] || 0) || priceOf(b) - priceOf(a));
+            const mythics = list.filter(c => c.rarity === 'mythic').length;
+            const rares = list.filter(c => c.rarity === 'rare').length;
+            summary.innerHTML = `<strong>${mythics}</strong> mythique(s) · <strong>${rares}</strong> rare(s)`;
+        }
+
+        if (list.length === 0) {
+            grid.innerHTML = `<div class="empty-state"><p>Aucune carte à afficher</p><small>${this._treasuresTab === 'expensive' ? 'Aucune carte à 10 € ou plus pour l\'instant. Rafraîchis les prix depuis l\'onglet Collection.' : 'Aucune carte rare ou mythique trouvée.'}</small></div>`;
+            return;
+        }
+
+        grid.innerHTML = list.slice(0, 200).map((c, i) => {
+            const price = priceOf(c);
+            const rarityLabel = this.rarityLabel(c.rarity);
+            const setInfo = this.getSetInfo(c.set);
+            const setName = setInfo?.name || c.setName || c.set || '';
+            return `<div class="treasure-card rarity-${c.rarity || 'common'}" data-id="${c.id}">
+                <span class="treasure-rank">#${i + 1}</span>
+                ${c.image ? `<img src="${c.image}" alt="${c.name}" loading="lazy">` : '<div class="treasure-noimg">🃏</div>'}
+                <div class="treasure-info">
+                    <span class="treasure-name">${c.name || 'Carte'}</span>
+                    <span class="treasure-set">${setName} · ${rarityLabel}</span>
+                    <span class="treasure-price">${price.toFixed(2)} €${c.foil ? ' ✨' : ''}${(c.quantity || 1) > 1 ? ` ×${c.quantity}` : ''}</span>
+                </div>
+            </div>`;
+        }).join('');
+
+        grid.querySelectorAll('.treasure-card').forEach(el => {
+            el.addEventListener('click', () => this.showCardModal(el.dataset.id));
+        });
     },
 
     // ================================================================
