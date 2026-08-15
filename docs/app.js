@@ -944,7 +944,10 @@ const App = {
     },
     parseCSV(text) {
         const lines = text.trim().split(/\r?\n/); if (lines.length < 2) return [];
-        const sep = lines[0].includes('\t') ? '\t' : ',';
+        // Détecter le séparateur : celui qui apparaît le plus dans l'en-tête (tab, ;, ,)
+        const header = lines[0];
+        const counts = { '\t': (header.match(/\t/g) || []).length, ';': (header.match(/;/g) || []).length, ',': (header.match(/,/g) || []).length };
+        const sep = Object.keys(counts).reduce((a, b) => counts[a] >= counts[b] ? a : b);
         const h = lines[0].split(sep).map(x => x.trim().replace(/"/g, '').toLowerCase());
         const ni = h.findIndex(x => ['name', 'nom', 'card_name', 'cardname'].includes(x)); if (ni === -1) return [];
         const si = h.findIndex(x => ['set', 'edition', 'set_code', 'extension', 'set code'].includes(x));
