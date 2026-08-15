@@ -1017,23 +1017,36 @@ const App = {
         this._ignoringSnapshot = true;
         clearTimeout(this._cloudSaveTimer);
 
-        // Ajout en masse SANS save/render/fetch par carte (sinon la page gèle)
-        const byId = new Map(this.collection.map(c => [c.id, c]));
+        // 1) Agréger les lignes du fichier par carte (ManaBox liste foil/non-foil séparément)
+        const importedById = new Map();
         for (const card of imported) {
-            const existing = byId.get(card.id);
+            if (!card.id) card.id = 'manual-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+            const ex = importedById.get(card.id);
+            if (ex) { ex.quantity = (ex.quantity || 1) + (card.quantity || 1); }
+            else { importedById.set(card.id, { ...card }); }
+        }
+
+        // 2) Appliquer sur la collection : REMPLACE la quantité (le CSV ManaBox est un
+        //    snapshot complet → pas de doublon même si on réimporte le même fichier)
+        const byId = new Map(this.collection.map(c => [c.id, c]));
+        let updated = 0, added = 0;
+        for (const [id, card] of importedById) {
+            const existing = byId.get(id);
             if (existing) {
-                existing.quantity = (existing.quantity || 1) + (card.quantity || 1);
+                existing.quantity = card.quantity || 1;   // remplace, n'additionne pas
+                if (card.foil !== undefined) existing.foil = card.foil;
+                updated++;
             } else {
-                if (!card.id) card.id = 'manual-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
                 this.collection.push(card);
-                byId.set(card.id, card);
+                byId.set(id, card);
+                added++;
             }
         }
         // Sauvegarde + rendu UNE seule fois
         localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
         this.renderCollection();
         this.updateStats();
-        this.showToast(`${imported.length} carte(s) importée(s) ! Chargement des détails...`);
+        this.showToast(`${added} nouvelle(s), ${updated} mise(s) à jour. Chargement des détails...`);
 
         // Enrichissement par lots (édition, image, prix) via l'ID Scryfall
         const toEnrich = this.collection.filter(c => c.id && !c.id.startsWith('import-') && !c.id.startsWith('manual-') && (!c.set || !c.image));
