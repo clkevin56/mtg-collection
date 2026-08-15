@@ -987,18 +987,38 @@ const App = {
     async confirmImport() {
         if (!this.pendingImport) return;
         const imported = this.pendingImport;
-        for (const c of imported) this.addToCollection(c);
-        this.showToast(`${imported.length} carte(s) importée(s) !`);
-        this.pendingImport = null; document.getElementById('import-preview').classList.add('hidden');
-        // Cartes avec un vrai ID Scryfall (ex: ManaBox) : enrichissement rapide par lots
-        const withScryfallId = this.collection.filter(c => c.id && !c.id.startsWith('import-') && !c.id.startsWith('manual-') && !c.set);
-        if (withScryfallId.length > 0) {
-            await this.enrichSlimCardsFromScryfall(withScryfallId);
+        this.pendingImport = null;
+        document.getElementById('import-preview').classList.add('hidden');
+
+        // Bloquer la sync temps réel pendant l'ajout en masse
+        this._ignoringSnapshot = true;
+        clearTimeout(this._cloudSaveTimer);
+
+        // Ajout en masse SANS save/render/fetch par carte (sinon la page gèle)
+        const byId = new Map(this.collection.map(c => [c.id, c]));
+        for (const card of imported) {
+            const existing = byId.get(card.id);
+            if (existing) {
+                existing.quantity = (existing.quantity || 1) + (card.quantity || 1);
+            } else {
+                if (!card.id) card.id = 'manual-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+                this.collection.push(card);
+                byId.set(card.id, card);
+            }
         }
-        // Cartes sans ID (import CSV générique) : enrichissement par nom
-        for (const c of this.collection.filter(x => !x.image && x.id?.startsWith('import-'))) {
-            await new Promise(r => setTimeout(r, 100));
-            await this.enrichCardFromScryfall(c);
+        // Sauvegarde + rendu UNE seule fois
+        localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
+        this.renderCollection();
+        this.updateStats();
+        this.showToast(`${imported.length} carte(s) importée(s) ! Chargement des détails...`);
+
+        // Enrichissement par lots (édition, image, prix) via l'ID Scryfall
+        const toEnrich = this.collection.filter(c => c.id && !c.id.startsWith('import-') && !c.id.startsWith('manual-') && (!c.set || !c.image));
+        if (toEnrich.length > 0) {
+            await this.enrichSlimCardsFromScryfall(toEnrich);
+        } else {
+            this._ignoringSnapshot = false;
+            await this._pushToCloud();
         }
     },
     cancelImport() { this.pendingImport = null; document.getElementById('import-preview').classList.add('hidden'); },
@@ -1609,7 +1629,9 @@ const App = {
         localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
         this.renderCollection();
         this.updateStats();
-        this.saveToCloud();
+        // Réactiver la sync temps réel puis pousser vers le cloud
+        this._ignoringSnapshot = false;
+        await this._pushToCloud();
         this.showToast('Éditions chargées !');
     },
 
