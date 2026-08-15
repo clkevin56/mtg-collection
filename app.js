@@ -356,6 +356,7 @@ const App = {
                             : `<span class="edition-missing">${missing} manquante${missing !== 1 && missing !== '?' ? 's' : ''}</span>`}
                         <span class="edition-value">${value.toFixed(2)} €</span>
                     </div>
+                    <button class="btn-delete-edition" data-set="${setCode}" title="Supprimer cette édition de ma collection">🗑️</button>
                     <span class="edition-toggle">▼</span>
                 </div>
                 <div class="edition-progress"><div class="edition-progress-fill ${pctClass}" style="width:${pct}%"></div></div>
@@ -398,6 +399,14 @@ const App = {
         grid.querySelectorAll('.edition-header').forEach(header => {
             header.addEventListener('click', () => {
                 header.parentElement.classList.toggle('open');
+            });
+        });
+
+        // Bind suppression rapide d'une édition
+        grid.querySelectorAll('.btn-delete-edition').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.deleteEdition(btn.dataset.set);
             });
         });
 
@@ -929,6 +938,20 @@ const App = {
         this.renderCollection();
         this.closeModals();
         this.showToast('Carte retirée.');
+    },
+
+    deleteEdition(setCode) {
+        const cards = this.collection.filter(c => (c.set || 'UNKNOWN') === setCode);
+        if (cards.length === 0) return;
+        const setInfo = this.getSetInfo(setCode);
+        const setName = setInfo?.name || cards[0]?.setName || setCode;
+        if (!confirm(`Supprimer les ${cards.length} carte(s) de l'édition "${setName}" (${setCode}) de ta collection ?`)) return;
+        delete this.setCardsCache[setCode];
+        this.collection = this.collection.filter(c => (c.set || 'UNKNOWN') !== setCode);
+        this.saveCollection();
+        this.renderCollection();
+        this.updateStats();
+        this.showToast(`Édition "${setName}" supprimée (${cards.length} cartes).`);
     },
 
     // --- Import/Export ---

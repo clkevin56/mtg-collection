@@ -940,6 +940,23 @@ hr {
     font-weight: 600;
 }
 
+.btn-delete-edition {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 1.1rem;
+    padding: 0.25rem 0.4rem;
+    border-radius: 6px;
+    flex-shrink: 0;
+    opacity: 0.6;
+    transition: opacity 0.2s, background 0.2s;
+}
+
+.btn-delete-edition:hover {
+    opacity: 1;
+    background: rgba(230, 57, 70, 0.2);
+}
+
 .edition-toggle {
     color: var(--text-secondary);
     font-size: 1.2rem;
