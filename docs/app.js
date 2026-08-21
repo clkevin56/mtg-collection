@@ -1071,31 +1071,47 @@ const App = {
         this.renderCollection();
         this.updateStats();
 
-        // 3) Vider le cloud de façon décisive (supprimer tous les morceaux)
+        // 3) Vider le cloud de façon décisive
         this.showToast('Vidage du cloud en cours...');
+        let cloudOk = false;
         try {
             if (this.fbDb && this._syncUid) {
                 const userRef = this.fbDb.collection('users').doc(this._syncUid);
-                const chunks = await userRef.collection('chunks').get();
-                const batch = this.fbDb.batch();
-                chunks.forEach(d => batch.delete(d.ref));
-                batch.set(userRef, {
+                // 3a) ÉCRASER le document principal avec un état vide (sans merge) :
+                //     supprime aussi l'ancien champ "collection" (format historique) qui
+                //     contenait les cartes et les repeuplait après reconnexion.
+                await userRef.set({
+                    collection: [],
                     cardCount: 0,
                     chunkCount: 0,
                     format: 'chunked',
                     clearedAt,
-                    collection: firebase.firestore.FieldValue.delete(),
                     lastModified: firebase.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-                await batch.commit();
+                });
+                // 3b) Supprimer les morceaux (best-effort ; le doc principal vide suffit déjà)
+                try {
+                    const chunks = await userRef.collection('chunks').get();
+                    if (!chunks.empty) {
+                        const b = this.fbDb.batch();
+                        chunks.forEach(d => b.delete(d.ref));
+                        await b.commit();
+                    }
+                } catch (e2) { console.warn('Suppression morceaux échouée (non bloquant):', e2); }
+                cloudOk = true;
+            } else {
+                cloudOk = true; // pas connecté : rien à vider côté cloud
             }
         } catch (e) {
             console.warn('Erreur vidage cloud:', e);
         }
 
         // 4) Recharger la page pour repartir sur un état 100% propre
-        this.showToast('Collection vidée. Rechargement...');
-        setTimeout(() => location.reload(), 1500);
+        if (cloudOk) {
+            this.showToast('Collection vidée. Rechargement...');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            this.showToast('Échec du vidage cloud. Vérifie ta connexion et réessaie.', true);
+        }
     },
 
     // --- Import/Export ---
@@ -1910,35 +1926,51 @@ const App = {
         this.showSyncStatus('saving');
         try {
             // Manifest léger (id/quantité/foil/nom/set). Le reste (image, prix, type) est
-            // re-téléchargé depuis Scryfall. Stocké en morceaux de 4000 pour ne jamais
-            // dépasser la limite Firestore de 1 Mo par document, quelle que soit la taille.
+            // re-téléchargé depuis Scryfall.
             const manifest = this.collection.map(c => ({ id: c.id, quantity: c.quantity || 1, foil: c.foil || false, name: c.name || '', set: c.set || '' }));
-            const CHUNK = 4000;
-            const chunkCount = Math.max(1, Math.ceil(manifest.length / CHUNK));
             const userRef = this.fbDb.collection('users').doc(this._syncUid);
+            const SIZE_LIMIT = 850000; // ~850 Ko, marge sous la limite Firestore de 1 Mo
 
-            const batch = this.fbDb.batch();
-            for (let i = 0; i < chunkCount; i++) {
-                batch.set(userRef.collection('chunks').doc(String(i)), { cards: manifest.slice(i * CHUNK, (i + 1) * CHUNK) });
-            }
-            const mainDoc = {
-                cardCount: manifest.length,
-                chunkCount,
-                format: 'chunked',
-                collection: firebase.firestore.FieldValue.delete(), // retire l'ancien gros champ
-                lastModified: firebase.firestore.FieldValue.serverTimestamp()
-            };
-            if (clearedAt) mainDoc.clearedAt = clearedAt; // marqueur de reset (propagé aux autres appareils)
-            batch.set(userRef, mainDoc, { merge: true });
-            await batch.commit();
-
-            // Nettoyer les morceaux orphelins si le nombre a diminué
-            const existing = await userRef.collection('chunks').get();
-            const orphans = existing.docs.filter(d => parseInt(d.id) >= chunkCount);
-            if (orphans.length) {
-                const delBatch = this.fbDb.batch();
-                orphans.forEach(d => delBatch.delete(d.ref));
-                await delBatch.commit();
+            if (JSON.stringify(manifest).length < SIZE_LIMIT) {
+                // Cas courant : tout tient dans un seul document (pas de sous-collection,
+                // fonctionne avec des règles de sécurité basiques).
+                const doc = {
+                    collection: manifest,
+                    cardCount: manifest.length,
+                    format: 'single',
+                    chunkCount: 0,
+                    lastModified: firebase.firestore.FieldValue.serverTimestamp()
+                };
+                if (clearedAt) doc.clearedAt = clearedAt;
+                await userRef.set(doc, { merge: true });
+            } else {
+                // Très grande collection : découper en morceaux de 4000
+                const CHUNK = 4000;
+                const chunkCount = Math.max(1, Math.ceil(manifest.length / CHUNK));
+                const batch = this.fbDb.batch();
+                for (let i = 0; i < chunkCount; i++) {
+                    batch.set(userRef.collection('chunks').doc(String(i)), { cards: manifest.slice(i * CHUNK, (i + 1) * CHUNK) });
+                }
+                const mainDoc = {
+                    cardCount: manifest.length,
+                    chunkCount,
+                    format: 'chunked',
+                    collection: firebase.firestore.FieldValue.delete(),
+                    lastModified: firebase.firestore.FieldValue.serverTimestamp()
+                };
+                if (clearedAt) mainDoc.clearedAt = clearedAt;
+                batch.set(userRef, mainDoc, { merge: true });
+                await batch.commit();
+                // Nettoyer les morceaux orphelins
+                try {
+                    const existing = await userRef.collection('chunks').get();
+                    const orphans = existing.docs.filter(d => parseInt(d.id) >= chunkCount);
+                    if (orphans.length) {
+                        const delBatch = this.fbDb.batch();
+                        orphans.forEach(d => delBatch.delete(d.ref));
+                        await delBatch.commit();
+                    }
+                } catch (e2) { console.warn('Nettoyage morceaux:', e2); }
             }
             this.showSyncStatus('synced');
         } catch (e) {
