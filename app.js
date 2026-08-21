@@ -1061,11 +1061,13 @@ const App = {
         this.persistLocal();
         this.renderCollection();
         this.updateStats();
-        // Synchroniser la suppression dans le cloud
+        // Marqueur de reset : force les autres appareils à se vider aussi
+        const clearedAt = Date.now();
+        localStorage.setItem('mtg-clearedAt', String(clearedAt));
         this._ignoringSnapshot = true;
-        await this._pushToCloud();
+        await this._pushToCloud(clearedAt);
         this._ignoringSnapshot = false;
-        this.showToast('Collection vidée. Tu peux importer ton CSV ManaBox.');
+        this.showToast('Collection vidée partout. Tu peux importer ton CSV ManaBox.');
     },
 
     // --- Import/Export ---
@@ -1680,11 +1682,26 @@ const App = {
             const docRef = this.fbDb.collection('users').doc(uid);
             const doc = await docRef.get();
 
+            let pushAfter = true;
             if (doc.exists) {
-                const cloudManifest = await this.fetchCloudManifest(docRef, doc.data());
+                const data = doc.data();
+                const cloudManifest = await this.fetchCloudManifest(docRef, data);
                 const localCards = this.collection;
 
-                if (cloudManifest.length > 0) {
+                // Marqueur de réinitialisation : si un reset a été fait ailleurs, on adopte
+                // l'état du cloud tel quel (sans re-garder les cartes locales).
+                const cloudCleared = data.clearedAt || 0;
+                const localCleared = parseInt(localStorage.getItem('mtg-clearedAt') || '0');
+                if (cloudCleared > localCleared) {
+                    localStorage.setItem('mtg-clearedAt', String(cloudCleared));
+                    this.collection = cloudManifest.map(c => ({ id: c.id, quantity: c.quantity || 1, foil: c.foil || false, name: c.name || '', set: c.set || '' }));
+                    this.persistLocal();
+                    this.renderCollection();
+                    this.updateStats();
+                    pushAfter = false; // ne pas re-pousser les anciennes cartes
+                    const slimCards = this.collection.filter(c => !c.set);
+                    if (slimCards.length > 0) this.enrichSlimCardsFromScryfall(slimCards);
+                } else if (cloudManifest.length > 0) {
                     this.collection = this.mergeCollections(cloudManifest, localCards);
                     this.persistLocal();
                     this.renderCollection();
@@ -1698,8 +1715,8 @@ const App = {
                 }
             }
 
-            // Pousser l'etat courant vers le cloud
-            await this._pushToCloud();
+            // Pousser l'etat courant vers le cloud (sauf si on vient d'adopter un reset)
+            if (pushAfter) await this._pushToCloud();
 
             // Ecouter les changements en temps reel (depuis un autre appareil)
             this._unsubscribe = docRef.onSnapshot(async snapshot => {
@@ -1707,7 +1724,24 @@ const App = {
                 if (this._ignoringSnapshot) return;
                 if (snapshot.metadata.hasPendingWrites) return;
 
-                const cloudManifest = await this.fetchCloudManifest(docRef, snapshot.data());
+                const data = snapshot.data();
+                const cloudManifest = await this.fetchCloudManifest(docRef, data);
+
+                // Reset fait sur un autre appareil : adopter l'état cloud et vider le local
+                const cloudCleared = data.clearedAt || 0;
+                const localCleared = parseInt(localStorage.getItem('mtg-clearedAt') || '0');
+                if (cloudCleared > localCleared) {
+                    localStorage.setItem('mtg-clearedAt', String(cloudCleared));
+                    this.collection = cloudManifest.map(c => ({ id: c.id, quantity: c.quantity || 1, foil: c.foil || false, name: c.name || '', set: c.set || '' }));
+                    this.persistLocal();
+                    this.renderCollection();
+                    this.updateStats();
+                    const slim = this.collection.filter(c => !c.set);
+                    if (slim.length > 0) this.enrichSlimCardsFromScryfall(slim);
+                    this.showToast('Collection réinitialisée depuis un autre appareil.');
+                    return;
+                }
+
                 // Comparer uniquement les IDs+quantités pour détecter un vrai changement
                 const localManifest = this.collection.map(c => ({ id: c.id, quantity: c.quantity || 1, foil: c.foil || false }));
                 const cloudStr = JSON.stringify(cloudManifest.map(c => c.id + c.quantity + c.foil).sort());
@@ -1841,7 +1875,7 @@ const App = {
         return (data && data.collection) || [];
     },
 
-    async _pushToCloud() {
+    async _pushToCloud(clearedAt) {
         if (!this.fbDb || !this._syncUid) return;
         this.showSyncStatus('saving');
         try {
@@ -1857,13 +1891,15 @@ const App = {
             for (let i = 0; i < chunkCount; i++) {
                 batch.set(userRef.collection('chunks').doc(String(i)), { cards: manifest.slice(i * CHUNK, (i + 1) * CHUNK) });
             }
-            batch.set(userRef, {
+            const mainDoc = {
                 cardCount: manifest.length,
                 chunkCount,
                 format: 'chunked',
                 collection: firebase.firestore.FieldValue.delete(), // retire l'ancien gros champ
                 lastModified: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
+            };
+            if (clearedAt) mainDoc.clearedAt = clearedAt; // marqueur de reset (propagé aux autres appareils)
+            batch.set(userRef, mainDoc, { merge: true });
             await batch.commit();
 
             // Nettoyer les morceaux orphelins si le nombre a diminué
