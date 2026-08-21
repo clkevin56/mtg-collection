@@ -208,6 +208,7 @@ const App = {
         });
         document.getElementById('file-input').addEventListener('change', (e) => {
             if (e.target.files.length) this.handleFileImport(e.target.files[0]);
+            e.target.value = ''; // permet de re-sélectionner le même fichier
         });
         document.getElementById('btn-confirm-import').addEventListener('click', () => this.confirmImport());
         document.getElementById('btn-cancel-import').addEventListener('click', () => this.cancelImport());
@@ -1020,11 +1021,25 @@ const App = {
     // --- Import/Export ---
     pendingImport: null,
     handleFileImport(file) {
+        if (!file) { this.showToast('Aucun fichier sélectionné.', true); return; }
+        this.showToast(`Lecture de « ${file.name} »...`);
         const reader = new FileReader();
+        reader.onerror = () => this.showToast('Impossible de lire le fichier.', true);
         reader.onload = (e) => {
-            const cards = this.parseCSV(e.target.result);
-            if (!cards.length) { this.showToast('Aucune carte.', true); return; }
-            this.pendingImport = cards; this.showImportPreview(cards);
+            try {
+                const cards = this.parseCSV(e.target.result);
+                if (!cards.length) {
+                    this.showToast('Aucune carte trouvée. Vérifie que le fichier contient une colonne "Name".', true);
+                    return;
+                }
+                this.pendingImport = cards;
+                this.showImportPreview(cards);
+                this.showToast(`${cards.length} carte(s) détectée(s) — clique sur « Confirmer l'import ».`);
+                document.getElementById('import-preview').scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } catch (err) {
+                this.showToast('Erreur de lecture : ' + err.message, true);
+                console.warn('handleFileImport:', err);
+            }
         };
         reader.readAsText(file);
     },
