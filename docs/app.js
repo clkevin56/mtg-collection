@@ -78,8 +78,39 @@ const App = {
         try { this.setsCache = JSON.parse(localStorage.getItem('mtg-sets-cache')) || {}; } catch { this.setsCache = {}; }
     },
 
+    // Sauvegarde locale résiliente : si le quota est dépassé (grande collection),
+    // on stocke une version allégée plutôt que de planter.
+    persistLocal() {
+        try {
+            this.persistLocal();
+            return true;
+        } catch (e) {
+            console.warn('localStorage plein, passage en version allégée', e);
+            try {
+                // Niveau 1 : retirer les champs lourds re-téléchargeables (image, type, oracle...)
+                const slim = this.collection.map(c => ({
+                    id: c.id, name: c.name, set: c.set, setName: c.setName,
+                    quantity: c.quantity, foil: c.foil, rarity: c.rarity,
+                    price: c.price, priceFoil: c.priceFoil, colors: c.colors
+                }));
+                localStorage.setItem('mtg-collection', JSON.stringify(slim));
+                return true;
+            } catch (e2) {
+                try {
+                    // Niveau 2 : minimum vital
+                    const min = this.collection.map(c => ({ id: c.id, name: c.name, set: c.set, quantity: c.quantity, foil: c.foil }));
+                    localStorage.setItem('mtg-collection', JSON.stringify(min));
+                    return true;
+                } catch (e3) {
+                    console.warn('localStorage saturé même en version minimale', e3);
+                    return false;
+                }
+            }
+        }
+    },
+
     saveCollection() {
-        localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
+        this.persistLocal();
         this.updateStats();
         this.showSaveStatus();
         this.saveToCloud();
@@ -763,7 +794,7 @@ const App = {
             for (const card of this.collection) card.quantity = 1;
         }
 
-        localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
+        this.persistLocal();
         this.updateStats();
         this.renderCollection();
 
@@ -1121,7 +1152,7 @@ const App = {
             }
         }
         // Sauvegarde + rendu UNE seule fois
-        localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
+        this.persistLocal();
         this.renderCollection();
         this.updateStats();
         this.showToast(`${added} nouvelle(s), ${updated} mise(s) à jour. Chargement des détails...`);
@@ -1333,7 +1364,7 @@ const App = {
             } catch {}
             await new Promise(r => setTimeout(r, 80));
         }
-        localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
+        this.persistLocal();
         this.updateStats();
         this.renderCollection();
         // Pousser vers le cloud puis réactiver le listener
@@ -1631,12 +1662,12 @@ const App = {
             const doc = await docRef.get();
 
             if (doc.exists) {
-                const cloudManifest = doc.data().collection || [];
+                const cloudManifest = await this.fetchCloudManifest(docRef, doc.data());
                 const localCards = this.collection;
 
                 if (cloudManifest.length > 0) {
                     this.collection = this.mergeCollections(cloudManifest, localCards);
-                    localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
+                    this.persistLocal();
                     this.renderCollection();
                     this.updateStats();
                     // Enrichir en arrière-plan les cartes slim (sans set/name) via Scryfall
@@ -1652,12 +1683,12 @@ const App = {
             await this._pushToCloud();
 
             // Ecouter les changements en temps reel (depuis un autre appareil)
-            this._unsubscribe = docRef.onSnapshot(snapshot => {
+            this._unsubscribe = docRef.onSnapshot(async snapshot => {
                 if (!snapshot.exists) return;
                 if (this._ignoringSnapshot) return;
                 if (snapshot.metadata.hasPendingWrites) return;
 
-                const cloudManifest = snapshot.data().collection || [];
+                const cloudManifest = await this.fetchCloudManifest(docRef, snapshot.data());
                 // Comparer uniquement les IDs+quantités pour détecter un vrai changement
                 const localManifest = this.collection.map(c => ({ id: c.id, quantity: c.quantity || 1, foil: c.foil || false }));
                 const cloudStr = JSON.stringify(cloudManifest.map(c => c.id + c.quantity + c.foil).sort());
@@ -1666,7 +1697,7 @@ const App = {
 
                 // Changement venant d'un autre appareil : fusionner
                 this.collection = this.mergeCollections(cloudManifest, this.collection);
-                localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
+                this.persistLocal();
                 this.renderCollection();
                 this.updateStats();
                 this.showSyncStatus('synced');
@@ -1732,7 +1763,7 @@ const App = {
 
             // Re-render toutes les 5 batches pour montrer la progression
             if ((i / BATCH) % 5 === 4) {
-                localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
+                this.persistLocal();
                 this.renderCollection();
                 this.updateStats();
             }
@@ -1740,7 +1771,7 @@ const App = {
         }
 
         this._enriching = false;
-        localStorage.setItem('mtg-collection', JSON.stringify(this.collection));
+        this.persistLocal();
         this.renderCollection();
         this.updateStats();
         // Réactiver la sync temps réel puis pousser vers le cloud
@@ -1777,20 +1808,53 @@ const App = {
         this._cloudSaveTimer = setTimeout(() => this._pushToCloud(), 1500);
     },
 
+    // Lit le manifest depuis le cloud : nouveau format par morceaux (chunks) ou ancien format
+    async fetchCloudManifest(docRef, data) {
+        if (data && data.format === 'chunked') {
+            const n = data.chunkCount || 0;
+            const snaps = await Promise.all(
+                Array.from({ length: n }, (_, i) => docRef.collection('chunks').doc(String(i)).get())
+            );
+            const m = [];
+            for (const cs of snaps) if (cs.exists && cs.data().cards) m.push(...cs.data().cards);
+            return m;
+        }
+        return (data && data.collection) || [];
+    },
+
     async _pushToCloud() {
         if (!this.fbDb || !this._syncUid) return;
         this.showSyncStatus('saving');
         try {
-            // Strip image/type/setName/lang before push — URLs are re-fetchées depuis Scryfall
-            // Réduit la taille : ~350 bytes/carte → ~120 bytes/carte (limite Firestore = 1MB)
-            // Stocker {id, quantity, foil, name, set} — ~100 bytes/carte
-            // 10000 cartes x 100 bytes = ~1MB, dans la limite Firestore
-            const manifest = this.collection.map(c => ({ id: c.id, quantity: c.quantity || 1, foil: c.foil || false, name: c.name || '', set: c.set || '', setName: c.setName || '' }));
-            await this.fbDb.collection('users').doc(this._syncUid).set({
-                collection: manifest,
-                lastModified: firebase.firestore.FieldValue.serverTimestamp(),
-                cardCount: manifest.length
-            });
+            // Manifest léger (id/quantité/foil/nom/set). Le reste (image, prix, type) est
+            // re-téléchargé depuis Scryfall. Stocké en morceaux de 4000 pour ne jamais
+            // dépasser la limite Firestore de 1 Mo par document, quelle que soit la taille.
+            const manifest = this.collection.map(c => ({ id: c.id, quantity: c.quantity || 1, foil: c.foil || false, name: c.name || '', set: c.set || '' }));
+            const CHUNK = 4000;
+            const chunkCount = Math.max(1, Math.ceil(manifest.length / CHUNK));
+            const userRef = this.fbDb.collection('users').doc(this._syncUid);
+
+            const batch = this.fbDb.batch();
+            for (let i = 0; i < chunkCount; i++) {
+                batch.set(userRef.collection('chunks').doc(String(i)), { cards: manifest.slice(i * CHUNK, (i + 1) * CHUNK) });
+            }
+            batch.set(userRef, {
+                cardCount: manifest.length,
+                chunkCount,
+                format: 'chunked',
+                collection: firebase.firestore.FieldValue.delete(), // retire l'ancien gros champ
+                lastModified: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            await batch.commit();
+
+            // Nettoyer les morceaux orphelins si le nombre a diminué
+            const existing = await userRef.collection('chunks').get();
+            const orphans = existing.docs.filter(d => parseInt(d.id) >= chunkCount);
+            if (orphans.length) {
+                const delBatch = this.fbDb.batch();
+                orphans.forEach(d => delBatch.delete(d.ref));
+                await delBatch.commit();
+            }
             this.showSyncStatus('synced');
         } catch (e) {
             console.warn('Cloud save error:', e);
