@@ -1053,21 +1053,49 @@ const App = {
 
     async clearAllCollection() {
         const n = this.collection.length;
-        if (n === 0) { this.showToast('La collection est déjà vide.'); return; }
         if (!confirm(`Vider TOUTE la collection (${n} carte(s)) ? Cette action est irréversible.`)) return;
         if (!confirm('Dernière confirmation : supprimer définitivement toutes les cartes du site ?')) return;
+
+        // 1) Stopper tout processus qui pourrait ré-enregistrer des cartes
+        this._cancelEnrich = true;
+        this._ignoringSnapshot = true;
+        clearTimeout(this._cloudSaveTimer);
+        if (this._unsubscribe) { this._unsubscribe(); this._unsubscribe = null; }
+
+        // 2) Vider la mémoire + le stockage local
         this.collection = [];
         this.setCardsCache = {};
-        this.persistLocal();
+        try { localStorage.removeItem('mtg-collection'); } catch {}
+        const clearedAt = Date.now();
+        try { localStorage.setItem('mtg-clearedAt', String(clearedAt)); } catch {}
         this.renderCollection();
         this.updateStats();
-        // Marqueur de reset : force les autres appareils à se vider aussi
-        const clearedAt = Date.now();
-        localStorage.setItem('mtg-clearedAt', String(clearedAt));
-        this._ignoringSnapshot = true;
-        await this._pushToCloud(clearedAt);
-        this._ignoringSnapshot = false;
-        this.showToast('Collection vidée partout. Tu peux importer ton CSV ManaBox.');
+
+        // 3) Vider le cloud de façon décisive (supprimer tous les morceaux)
+        this.showToast('Vidage du cloud en cours...');
+        try {
+            if (this.fbDb && this._syncUid) {
+                const userRef = this.fbDb.collection('users').doc(this._syncUid);
+                const chunks = await userRef.collection('chunks').get();
+                const batch = this.fbDb.batch();
+                chunks.forEach(d => batch.delete(d.ref));
+                batch.set(userRef, {
+                    cardCount: 0,
+                    chunkCount: 0,
+                    format: 'chunked',
+                    clearedAt,
+                    collection: firebase.firestore.FieldValue.delete(),
+                    lastModified: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                await batch.commit();
+            }
+        } catch (e) {
+            console.warn('Erreur vidage cloud:', e);
+        }
+
+        // 4) Recharger la page pour repartir sur un état 100% propre
+        this.showToast('Collection vidée. Rechargement...');
+        setTimeout(() => location.reload(), 1500);
     },
 
     // --- Import/Export ---
@@ -1775,6 +1803,7 @@ const App = {
 
     async enrichSlimCardsFromScryfall(slimCards) {
         this._enriching = true;
+        this._cancelEnrich = false;
         const BATCH = 75;
         let enriched = 0;
         const total = slimCards.length;
@@ -1782,6 +1811,7 @@ const App = {
         const textEl = document.getElementById('repair-progress-text');
 
         for (let i = 0; i < slimCards.length; i += BATCH) {
+            if (this._cancelEnrich) { this._enriching = false; return; } // stoppé par un vidage
             const batch = slimCards.slice(i, i + BATCH).filter(c => c.id && !c.id.startsWith('manual-'));
             if (batch.length === 0) { enriched += BATCH; continue; }
             try {
