@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ma Collection MTG</title>
-    <link rel="stylesheet" href="style.css?v=20260715l">
+    <link rel="stylesheet" href="style.css?v=20260715m">
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <!-- Firebase SDK (sync cloud entre appareils) -->
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -169,6 +169,12 @@
         <!-- Import View -->
         <section id="view-import" class="view">
             <div class="import-container">
+                <div style="background:#e63946;color:#fff;padding:1rem;border-radius:8px;margin-bottom:1.25rem">
+                    <h2 style="margin-top:0;color:#fff">🗑️ Repartir de zéro (ManaBox)</h2>
+                    <p style="margin:0.5rem 0">Vide entièrement la collection du site, puis importe ton dernier CSV ManaBox juste en dessous. À utiliser quand ManaBox est ta source à jour.</p>
+                    <button id="btn-clear-all" class="btn-primary" style="background:#fff;color:#e63946;font-weight:bold">Vider toute la collection</button>
+                </div>
+
                 <h2>Importer depuis un fichier CSV (ManaBox, Moxfield, Archidekt...)</h2>
                 <p class="import-info">
                     <strong>📱 ManaBox :</strong> dans l'app, va dans <em>Collection → ⋮ → Export → CSV</em>, puis importe le fichier ici.<br>
@@ -268,6 +274,6 @@
     </div>
 
 
-    <script src="app.js?v=20260715l"></script>
+    <script src="app.js?v=20260715m"></script>
 </body>
 </html>

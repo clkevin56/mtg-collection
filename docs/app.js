@@ -247,6 +247,8 @@ const App = {
         document.getElementById('btn-backup').addEventListener('click', () => this.backupJSON());
         const restoreBtn = document.getElementById('btn-restore-server');
         if (restoreBtn) restoreBtn.addEventListener('click', () => this.restoreFromServerExcel());
+        const clearBtn = document.getElementById('btn-clear-all');
+        if (clearBtn) clearBtn.addEventListener('click', () => this.clearAllCollection());
         document.getElementById('btn-refresh-prices').addEventListener('click', () => this.refreshPrices());
         document.getElementById('btn-remove-duplicates').addEventListener('click', () => this.removeDuplicates());
 
@@ -1047,6 +1049,23 @@ const App = {
         this.renderCollection();
         this.updateStats();
         this.showToast(`Édition "${setName}" supprimée (${cards.length} cartes).`);
+    },
+
+    async clearAllCollection() {
+        const n = this.collection.length;
+        if (n === 0) { this.showToast('La collection est déjà vide.'); return; }
+        if (!confirm(`Vider TOUTE la collection (${n} carte(s)) ? Cette action est irréversible.`)) return;
+        if (!confirm('Dernière confirmation : supprimer définitivement toutes les cartes du site ?')) return;
+        this.collection = [];
+        this.setCardsCache = {};
+        this.persistLocal();
+        this.renderCollection();
+        this.updateStats();
+        // Synchroniser la suppression dans le cloud
+        this._ignoringSnapshot = true;
+        await this._pushToCloud();
+        this._ignoringSnapshot = false;
+        this.showToast('Collection vidée. Tu peux importer ton CSV ManaBox.');
     },
 
     // --- Import/Export ---
